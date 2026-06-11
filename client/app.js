@@ -1,0 +1,871 @@
+/* 티츄 UI — redacted 스냅샷만 소비 (온라인/오프라인 공용) */
+/* global TichuCore, TichuBots, STR, OfflineSession, OnlineSession */
+(function () {
+'use strict';
+var C = TichuCore;
+var appEl, toastEl, toastTimer;
+
+var state = {
+  screen: 'home',        // home | game
+  name: '',
+  urlRoom: '',
+  session: null,
+  welcomed: false,
+  pendingWelcome: null,
+  snap: null,
+  sel: {},               // 선택된 카드 id → true
+  exch: [null, null, null], // 교환 슬롯 (왼쪽/파트너/오른쪽 = rel 1/2/3)
+  wishCards: null,       // 소원 선택 대기 중인 플레이 카드
+  help: false,
+  helpFromModal: false,  // 모달 위에 띄운 도움말인지 (닫으면 원래 모달로)
+  replaced: false,
+  office: false,         // 엑셀 위장 모드
+  tichuArmed: 0,         // 티츄 2탭 확인: 1차 탭 시각(ms)
+  lobbyTarget: 1000,     // 로비에서 고른 목표 점수
+  showHistory: false,    // 점수 히스토리 패널
+  conn: { s: '', mode: '' }
+};
+var tichuArmTimer = null;
+
+// ---------- 유틸 ----------
+function $(s) { return document.querySelector(s); }
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+function toast(msg) {
+  toastEl.textContent = msg;
+  toastEl.classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () { toastEl.classList.remove('on'); }, 2200);
+}
+function game() { return state.snap && state.snap.game; }
+function mySeat() { return state.snap ? state.snap.youSeat : -1; }
+function myTeamKey() { return C.teamOf(mySeat()) === 0 ? 'teamA' : 'teamB'; }
+function oppTeamKey() { return C.teamOf(mySeat()) === 0 ? 'teamB' : 'teamA'; }
+function seatName(s) {
+  if (!state.snap) return '';
+  var rs = state.snap.roomSeats[s];
+  if (!rs || !rs.occupied) return STR.empty;
+  return rs.name || (rs.isBot ? STR.bot : '?');
+}
+function relSeat(rel) { return (mySeat() + rel) % 4; }
+function isHost() { return state.snap && state.snap.hostSeat === mySeat(); }
+function myTurn() {
+  var g = game();
+  return g && g.phase === 'play' && g.turnSeat === mySeat() && !seatInfo(mySeat()).out;
+}
+function seatInfo(s) {
+  var g = game();
+  return (g && g.seats[s]) || { handCount: 0, tichu: 'none', out: false, outRank: null };
+}
+function selectedIds() {
+  var g = game();
+  var hand = g && g.you ? g.you.hand : [];
+  return hand.filter(function (id) { return state.sel[id]; });
+}
+
+// ---------- 카드 렌더 ----------
+var SUIT_COLOR = { S: '#23262e', H: '#cf3434', D: '#2a62c4', C: '#1c7e46' };
+var SUIT_COLOR_OFFICE = { S: '#222222', H: '#c00000', D: '#c00000', C: '#222222' };
+var SP_INFO = { MJ: ['1', '🐦', 'spMJ', '마작'], DG: ['', '🐶', 'spDG', '개'], PH: ['', '🔥', 'spPH', '불사조'], DR: ['', '🐉', 'spDR', '용'] };
+var SP_OFFICE = { MJ: '1', DG: 'DOG', PH: 'PHX', DR: 'DRG' };
+function cardHtml(id, cls, attrs) {
+  cls = cls || '';
+  attrs = attrs || '';
+  if (C.isSpecial(id)) {
+    if (state.office) { // 위장 모드: 데이터 코드처럼
+      return '<div class="card sp ' + cls + '" data-card="' + id + '" ' + attrs + '>' +
+        '<span class="cr">' + SP_OFFICE[id] + '</span></div>';
+    }
+    var sp = SP_INFO[id];
+    return '<div class="card sp ' + sp[2] + ' ' + cls + '" data-card="' + id + '" ' + attrs + '>' +
+      '<span class="spBand">' + sp[3] + '</span>' +
+      '<span class="em">' + sp[1] + '</span>' +
+      (id === 'MJ' ? '<span class="spRank">1</span>' : '') +
+      '</div>';
+  }
+  var r = C.rankOf(id), su = id[0];
+  var col = (state.office ? SUIT_COLOR_OFFICE : SUIT_COLOR)[su];
+  return '<div class="card ' + cls + '" data-card="' + id + '" ' + attrs + ' style="color:' + col + '">' +
+    '<span class="cr">' + C.rankLabel(r) + '<span class="su">' + C.SUIT_SYMBOL[su] + '</span></span>' +
+    '<span class="cp">' + C.SUIT_SYMBOL[su] + '</span>' +
+    '<span class="cr flip">' + C.rankLabel(r) + '<span class="su">' + C.SUIT_SYMBOL[su] + '</span></span>' +
+    '</div>';
+}
+function comboLabel(combo) {
+  if (!combo) return '';
+  var t = { single: '싱글', pair: '페어', triple: '트리플', fullhouse: '풀하우스',
+            straight: '스트레이트', pairseq: '연속페어', bomb4: '폭탄', bombstraight: '스트플 폭탄', dog: '개' }[combo.type] || combo.type;
+  var r = combo.rank;
+  var rl = (typeof r === 'number' && r % 1 === 0 && r >= 1 && r <= 15) ? ' ' + C.rankLabel(r) : '';
+  if (combo.type === 'straight' || combo.type === 'bombstraight') rl = ' ' + combo.length + '장 (' + C.rankLabel(combo.rank) + '까지)';
+  if (combo.type === 'dog') rl = '';
+  return t + rl;
+}
+
+// ---------- 선택 평가 ----------
+function evalSelection() {
+  var g = game();
+  if (!g || g.phase !== 'play') return null;
+  var ids = selectedIds();
+  if (!ids.length) return null;
+  var combo = C.identify(ids);
+  if (!combo) return { legal: false, label: '유효하지 않은 조합' };
+  var cur = g.currentCombo;
+  if (combo.type === 'single' && combo.rank === 'PH') {
+    if (cur) {
+      if (C.isBomb(cur.type) || cur.type !== 'single' || cur.rank >= 15) return { legal: false, label: '불사조로 이길 수 없음' };
+      combo = { type: 'single', rank: cur.rank + 0.5, length: 1 };
+    } else combo = { type: 'single', rank: 1.5, length: 1 };
+    var lblP = '불사조 싱글';
+    if (myTurn()) return { legal: true, combo: combo, label: lblP };
+    return { legal: false, label: '차례가 아닙니다' };
+  }
+  var label = comboLabel(combo);
+  if (combo.type === 'dog') {
+    if (myTurn() && !cur) return { legal: true, combo: combo, label: '개 — 파트너에게 선' };
+    return { legal: false, label: '개는 선일 때만' };
+  }
+  if (myTurn()) {
+    if (cur && !C.beats(combo, cur)) return { legal: false, label: label + ' — 못 이깁니다' };
+    if (g.you.mustFulfillWish && g.wish) {
+      var hasWish = ids.some(function (id) { return !C.isSpecial(id) && C.rankOf(id) === g.wish; });
+      if (!hasWish) return { legal: false, label: '소원(' + C.rankLabel(g.wish) + ') 포함 필요' };
+    }
+    return { legal: true, combo: combo, label: label };
+  }
+  if (C.isBomb(combo.type) && cur && C.beats(combo, cur)) {
+    return { legal: true, combo: combo, label: label + ' — 끼어들기!' };
+  }
+  return { legal: false, label: '차례가 아닙니다' };
+}
+function availableBomb() {
+  var g = game();
+  if (!g || g.phase !== 'play' || myTurn() || !g.currentCombo || !g.you) return null;
+  if (seatInfo(mySeat()).out) return null;
+  var ms = C.genMoves(g.you.hand, g.currentCombo, null).moves.filter(function (m) { return C.isBomb(m.combo.type); });
+  if (!ms.length) return null;
+  ms.sort(function (a, b) { return a.combo.rank - b.combo.rank; });
+  return ms[0];
+}
+
+// ---------- 세션 ----------
+var handlers = {
+  onState: function (snap) {
+    state.snap = snap;
+    state.screen = 'game';
+    reconcile();
+    render();
+  },
+  onWelcome: function (msg) {
+    state.welcomed = true;
+    var cb = state.pendingWelcome;
+    state.pendingWelcome = null;
+    if (!msg.snapshot) {
+      if (cb) cb();
+      else if (state.urlRoom && state.name) joinRoom(state.urlRoom);
+      else { state.screen = 'home'; render(); }
+    }
+  },
+  onAck: function (m) {
+    if (!m.ok && m.error && m.error.code !== 'STALE_VERSION') {
+      toast(m.error.message || m.error.code);
+      render();
+    }
+  },
+  onReplaced: function () { state.replaced = true; render(); },
+  onLeft: function (reason) {
+    state.screen = 'home';
+    state.snap = null;
+    toast(reason === 'kicked' ? STR.kicked : STR.roomClosed);
+    render();
+  },
+  onStatus: function (s, mode) { state.conn = { s: s, mode: mode }; renderConn(); },
+  onStale: function () { toast(STR.refreshNew); }
+};
+
+function destroySession() {
+  if (state.session) { state.session.destroy(); state.session = null; }
+  state.welcomed = false;
+  state.snap = null;
+}
+function ensureOnline(cb) {
+  saveName();
+  if (!state.name) { toast('닉네임을 입력하세요'); return; }
+  if (state.session && state.session.mode === 'online') {
+    if (state.welcomed) cb();
+    else state.pendingWelcome = cb;
+    return;
+  }
+  destroySession();
+  state.pendingWelcome = cb;
+  state.session = OnlineSession.create(handlers);
+  state.session.connect(state.name);
+}
+function startSolo(resume) {
+  destroySession();
+  if (!resume) OfflineSession.clearSave();
+  state.session = OfflineSession.create(handlers, resume);
+  state.conn = { s: '', mode: 'offline' };
+}
+function joinRoom(code) {
+  ensureOnline(function () {
+    state.session.send({ type: 'join_room', code: code, name: state.name });
+  });
+}
+function send(a) { if (state.session) state.session.send(a); }
+function saveName() {
+  var inp = $('#nick');
+  if (inp) state.name = inp.value.trim().slice(0, 12);
+  if (state.name) try { localStorage.setItem('tichu.name', state.name); } catch (e) {}
+}
+function reconcile() {
+  var g = game();
+  var hand = g && g.you ? g.you.hand : [];
+  var inHand = {};
+  hand.forEach(function (id) { inHand[id] = true; });
+  Object.keys(state.sel).forEach(function (id) { if (!inHand[id]) delete state.sel[id]; });
+  if (!g || g.phase !== 'exchange') state.exch = [null, null, null];
+  else state.exch = state.exch.map(function (id) { return id && inHand[id] ? id : null; });
+  if (!g || g.phase !== 'play') state.wishCards = null;
+}
+
+// ---------- 렌더 ----------
+var lastMyTurn = false;
+function render() {
+  document.body.classList.toggle('office', !!state.office);
+  applyDisguise();
+  var inner = state.screen === 'home' ? renderHome() : renderGame();
+  if (state.office) inner = officeTop() + '<div class="officeBody">' + inner + '</div>' + officeBottom();
+  appEl.innerHTML = inner;
+  renderConn();
+  fitHand();
+  // 내 차례로 막 전환되면 살짝 진동 (모바일)
+  var mt = myTurn();
+  if (mt && !lastMyTurn && navigator.vibrate) { try { navigator.vibrate(30); } catch (e) {} }
+  lastMyTurn = mt;
+}
+
+// 위장 모드 ON/OFF에 맞춰 탭 제목·파비콘·테마색 교체
+function applyDisguise() {
+  var title = state.office ? '통합 문서1 - Excel' : '티츄';
+  if (document.title !== title) document.title = title;
+  var theme = state.office ? '#f3f2f1' : '#14352a';
+  var mt = document.querySelector('meta[name="theme-color"]');
+  if (mt) mt.setAttribute('content', theme);
+  var icon = document.querySelector('link[rel="icon"]');
+  if (icon) {
+    var want = state.office ? 'icons/xlsx.svg' : 'icons/icon.svg';
+    if (icon.getAttribute('href') !== want) icon.setAttribute('href', want);
+  }
+}
+
+// ---------- 엑셀 위장 모드 장식 ----------
+function officeTop() {
+  var cols = '';
+  'ABCDEFGHIJ'.split('').forEach(function (c) { cols += '<span>' + c + '</span>'; });
+  return '<div class="xl xlTitle">자동 저장 <span class="xlOnOff">켬</span><span class="xlDoc">통합 문서1 - Excel</span></div>' +
+    '<div class="xl xlMenu">파일&nbsp;&nbsp;홈&nbsp;&nbsp;삽입&nbsp;&nbsp;페이지 레이아웃&nbsp;&nbsp;수식&nbsp;&nbsp;데이터&nbsp;&nbsp;검토&nbsp;&nbsp;보기</div>' +
+    '<div class="xl xlFormula"><span class="xlName">B4</span><span class="xlFx">fx</span><span class="xlInput">=SUM(B2:B3)</span></div>' +
+    '<div class="xl xlCols">' + cols + '</div>';
+}
+function officeBottom() {
+  return '<div class="xl xlTabs"><span class="xlTab on">Sheet1</span><span class="xlTab">집계</span><span class="xlTab">백업</span>' +
+    '<span class="xlPlus">+</span><span class="xlReady">준비</span></div>';
+}
+
+// 손패가 화면 폭에 항상 다 들어오도록 겹침 간격을 카드 수에 맞춰 계산
+// (가운데 정렬 + 넘침 조합은 왼쪽 카드가 잘리고 스크롤도 닿지 않는 문제가 있음)
+function fitHand() {
+  var hand = appEl.querySelector('.hand');
+  if (!hand) return;
+  var cards = hand.querySelectorAll('.card');
+  var n = cards.length;
+  if (n < 2) return;
+  var W = cards[0].offsetWidth || 52;
+  var avail = hand.clientWidth - 14; // 좌우 패딩 여유
+  var s = Math.floor((avail - W) / (n - 1)); // 카드당 보이는 폭
+  s = Math.max(12, Math.min(30, s));
+  for (var i = 1; i < n; i++) cards[i].style.marginLeft = (s - W) + 'px';
+}
+function renderConn() {
+  var el = $('#connTxt'), dot = $('#connDot');
+  if (!el) return;
+  var map = { connecting: STR.connecting, reconnecting: STR.reconnecting, connected: STR.connected, offline: STR.offline };
+  var txt = state.conn.mode === 'offline' ? '혼자 연습' : (map[state.conn.s] || '');
+  if (state.conn.s === 'connected' && state.conn.mode && state.conn.mode !== 'ws' && state.conn.mode !== 'offline') txt += ' (' + state.conn.mode + ')';
+  el.textContent = txt;
+  if (dot) dot.className = 'connDot' + (state.conn.s === 'connected' || state.conn.mode === 'offline' ? '' : state.conn.s === 'offline' ? ' bad' : ' warn');
+}
+
+function renderHome() {
+  var canResume = OfflineSession.hasSave();
+  return '<div class="home">' +
+    '<h1>' + STR.appName + '</h1>' +
+    '<div class="sub">' + STR.subtitle + '</div>' +
+    '<input id="nick" maxlength="12" placeholder="' + STR.nickname + '" value="' + esc(state.name) + '">' +
+    '<button class="btn primary" data-act="create">' + STR.createRoom + '</button>' +
+    '<div class="codeRow">' +
+      '<input id="code" maxlength="4" placeholder="' + STR.roomCode + '" value="' + esc(state.urlRoom) + '" autocapitalize="characters">' +
+      '<button class="btn" data-act="join">' + STR.joinRoom + '</button>' +
+    '</div>' +
+    '<button class="btn ghost" data-act="solo">' + STR.solo + '</button>' +
+    (canResume ? '<button class="btn ghost" data-act="solo-resume">' + STR.soloResume + '</button>' : '') +
+    '<div class="row"><button class="btn ghost grow" data-act="help-open">' + STR.rulesBtn + '</button>' +
+    '<button class="btn ghost grow" data-act="office-toggle">' + (state.office ? '위장 끄기' : '▦ 위장') + '</button></div>' +
+    '<div class="connStatus"><span id="connTxt"></span></div>' +
+  '</div>' + (state.help ? helpModal() : '');
+}
+
+function renderGame() {
+  var snap = state.snap;
+  if (!snap) return renderHome();
+  var html = snap.phase === 'lobby' ? renderLobby() : renderTable();
+  html += renderModal();
+  return html;
+}
+
+function renderLobby() {
+  var snap = state.snap;
+  var seats = '';
+  for (var s = 0; s < 4; s++) {
+    var rs = snap.roomSeats[s];
+    var team = C.teamOf(s) === 0 ? 'teamA' : 'teamB';
+    var me = s === mySeat();
+    var inner = '<div class="nm">' + (rs.occupied ? esc(rs.name) : '<span style="opacity:.4">' + STR.empty + '</span>') +
+      (rs.isBot ? ' <span class="chip dim">' + STR.bot + '</span>' : '') +
+      (s === snap.hostSeat && rs.occupied && !rs.isBot ? ' <span class="chip gold">' + STR.host + '</span>' : '') +
+      (me ? ' <span class="chip gold">' + STR.you + '</span>' : '') + '</div>';
+    inner += '<div class="tag">' + (C.teamOf(s) === C.teamOf(mySeat()) ? STR.myTeam : STR.oppTeam) + ' 팀 · 좌석 ' + (s + 1) + '</div>';
+    var btns = '<div class="row" style="margin-top:auto">';
+    if (!rs.occupied) {
+      btns += '<button class="btn small" data-act="sit" data-seat="' + s + '">' + STR.sit + '</button>';
+      if (isHost()) btns += '<button class="btn small ghost" data-act="bot-add" data-seat="' + s + '">' + STR.addBot + '</button>';
+    } else if (rs.isBot && isHost()) {
+      btns += '<button class="btn small ghost" data-act="bot-del" data-seat="' + s + '">' + STR.removeBot + '</button>';
+    } else if (!me && isHost() && rs.occupied && !rs.isBot) {
+      btns += '<button class="btn small danger" data-act="kick" data-seat="' + s + '">' + STR.kick + '</button>';
+    }
+    btns += '</div>';
+    seats += '<div class="seatCard ' + team + (me ? ' me' : '') + '">' + inner + btns + '</div>';
+  }
+  return '<div class="lobby">' +
+    '<div class="row"><span class="connDot" id="connDot"></span><span id="connTxt" style="font-size:12px;opacity:.7"></span>' +
+    '<span class="grow"></span>' +
+    '<button class="btn small ghost" data-act="office-toggle" title="위장 모드">▦</button>' +
+    '<button class="btn small ghost" data-act="leave">' + STR.leave + '</button></div>' +
+    '<div class="codeBig">' + esc(snap.code || '') + '</div>' +
+    '<button class="btn ghost" data-act="copy">' + STR.copyLink + '</button>' +
+    '<div class="seatGrid">' + seats + '</div>' +
+    '<div class="lobbyHint">' + STR.teamHint + '</div>' +
+    (isHost()
+      ? targetPicker() + '<button class="btn primary" data-act="start">' + STR.start + ' (빈자리는 봇)</button>'
+      : '<div class="lobbyHint">' + STR.waitingHost + '</div>') +
+  '</div>';
+}
+
+function renderTable() {
+  var snap = state.snap, g = game();
+  if (!g) return '';
+  var ms = mySeat();
+  var sc = g.scores;
+  var my = myTeamKey() === 'teamA' ? sc.teamA : sc.teamB;
+  var op = myTeamKey() === 'teamA' ? sc.teamB : sc.teamA;
+
+  // 헤더
+  var html = '<div class="ghead">' +
+    '<span class="connDot" id="connDot"></span>' +
+    '<span class="score"><span class="a">' + STR.myTeam + ' ' + my + '</span> : <span class="b">' + op + ' ' + STR.oppTeam + '</span></span>' +
+    '<span class="chip dim">' + g.round + 'R · ' + g.targetScore + '점</span>' +
+    '<span class="grow"></span>' +
+    '<span id="connTxt" style="font-size:11px;opacity:.6"></span>' +
+    (snap.code ? '<span class="chip dim">' + esc(snap.code) + '</span>' : '') +
+    '<button class="btn small ghost" data-act="office-toggle" title="위장 모드">▦</button>' +
+    '<button class="btn small ghost" data-act="help-open">?</button>' +
+    '<button class="btn small ghost" data-act="leave">' + STR.leave + '</button>' +
+  '</div>';
+
+  // 상대 패널 (왼쪽 / 파트너 / 오른쪽)
+  html += '<div class="opps">';
+  [1, 2, 3].forEach(function (rel) {
+    var s = relSeat(rel);
+    var rs = snap.roomSeats[s], si = seatInfo(s);
+    var cls = 'opp' + (rel === 2 ? ' partner' : '') + (g.turnSeat === s && g.phase === 'play' ? ' turn' : '');
+    var badges = '';
+    if (si.tichu === 'grand') badges += '<span class="chip red">' + STR.grandBadge + '</span>';
+    else if (si.tichu === 'tichu') badges += '<span class="chip red">' + STR.tichuBadge + '</span>';
+    if (si.out) badges += '<span class="chip gold">' + STR.finishRank[si.outRank - 1] + '</span>';
+    var minis = '';
+    for (var i = 0; i < Math.min(si.handCount, 14); i++) minis += '<span class="mini"></span>';
+    var offline = rs.occupied && !rs.isBot && !rs.connected;
+    var hour = state.office ? '' : '⏳ ';
+    var timerTxt = '';
+    if (snap.botTimer && snap.botTimer.seat === s) timerTxt = '<div class="off">' + hour + Math.ceil(snap.botTimer.msLeft / 1000) + STR.botActsIn + '</div>';
+    else if (offline) timerTxt = '<div class="off">' + STR.disconnected + '</div>';
+    // 게임 중 끊긴 사람을 방장이 봇으로 교체 (서버 kick_player가 봇 전환)
+    if (offline && isHost()) timerTxt += '<button class="btn small ghost" data-act="kick-seat" data-seat="' + s + '" style="margin-top:4px">' + STR.toBot + '</button>';
+    var partnerMark = rel === 2 ? (state.office ? '' : ' ♥') : '';
+    html += '<div class="' + cls + '">' +
+      '<div class="badges">' + badges + '</div>' +
+      '<div class="nm">' + esc(rs.name) + partnerMark + '</div>' +
+      '<div class="cnt">' + si.handCount + '장 · ' + si.trickPoints + STR.pilePts + '</div>' +
+      '<div class="minis">' + minis + '</div>' + timerTxt +
+    '</div>';
+  });
+  html += '</div>';
+
+  // 중앙 테이블
+  html += '<div class="table">';
+  var info = '';
+  if (g.wish) info += '<span class="chip gold">' + STR.wishChip + ': ' + C.rankLabel(g.wish) + '</span>';
+  if (g.trickPilePoints) info += '<span class="chip dim">바닥 ' + g.trickPilePoints + STR.pilePts + '</span>';
+  if (g.phase === 'play' && g.waitingOn.length && !myTurn()) {
+    info += '<span class="chip dim">차례: ' + esc(seatName(g.turnSeat)) + '</span>';
+  }
+  if (g.phase === 'grand' || g.phase === 'exchange') {
+    var waitNames = g.waitingOn.map(function (s2) { return s2 === ms ? STR.you : seatName(s2); }).join(', ');
+    info += '<span class="chip dim">대기: ' + esc(waitNames) + '</span>';
+  }
+  html += '<div class="tableInfo">' + info + '</div>';
+
+  // 현재 트릭의 모든 플레이를 순서대로, 마지막(현재 이기는 수)을 강조
+  html += '<div class="trickCards">';
+  if (g.trick.length) {
+    html += g.trick.map(function (p, i) {
+      var win = i === g.trick.length - 1;
+      var who = '<span class="playWho">' + esc(seatName(p.seat)) + '</span>';
+      return '<div class="play' + (win ? ' win' : '') + '">' +
+        p.cards.map(function (id) { return cardHtml(id, 'sm'); }).join('') + who + '</div>';
+    }).join('');
+  } else if (g.phase === 'play') {
+    html += '<span style="opacity:.45;font-size:13px">새 트릭 — ' + esc(seatName(g.turnSeat)) + ' 선</span>';
+  }
+  html += '</div>';
+
+  html += '<div class="lastLine">' + lastActionLine() + '</div>';
+  if (myTurn()) {
+    html += '<div class="turnBanner">▶ ' + STR.yourTurn + (g.currentCombo ? ' — ' + comboLabel(g.currentCombo) + '보다 높게' : ' — ' + STR.leadFree) + '</div>';
+  }
+  html += '</div>';
+
+  // 내 영역
+  html += renderMeArea();
+  return html;
+}
+
+function lastActionLine() {
+  var g = game();
+  var la = g.lastAction;
+  if (!la) return '';
+  var nm = la.seat != null ? esc(seatName(la.seat)) : '';
+  var em = function (s) { return state.office ? '' : s; }; // 위장 모드에서는 이모지 제거
+  switch (la.kind) {
+    case 'play': return nm + ': ' + (la.combo ? comboLabel(la.combo) : '');
+    case 'bomb': return em('💥 ') + nm + ': ' + comboLabel(la.combo || { type: 'bomb4' });
+    case 'pass': return nm + ' ' + STR.passChip;
+    case 'tichu': return em('🔴 ') + nm + ' 티츄 선언!';
+    case 'grand': return em('🔴 ') + nm + ' 그랜드 티츄 선언!';
+    case 'grand_pass': return '';
+    case 'dog': return em('🐶 ') + nm + ' 개 — 파트너에게 선';
+    case 'trick_won': return nm + ' 트릭 획득' + (la.dragon ? ' (용 — 증정 대기)' : '');
+    case 'dragon_give': return em('🐉 ') + nm + ' → ' + esc(seatName(la.toSeat)) + ' 트릭 증정';
+    case 'exchange_done': return '교환 완료 — ' + esc(seatName(la.leader)) + ' 선 (마작)';
+    case 'round_end': return '';
+    default: return '';
+  }
+}
+
+function renderMeArea() {
+  var snap = state.snap, g = game();
+  var ms = mySeat();
+  var si = seatInfo(ms);
+  var you = g.you || { hand: [] };
+  var html = '<div class="meArea' + (myTurn() ? ' myturn' : '') + '">';
+
+  // 내 정보 줄
+  var inf = '<b>' + esc(seatName(ms)) + '</b>';
+  if (si.tichu === 'grand') inf += ' <span class="chip red">' + STR.grandBadge + '</span>';
+  else if (si.tichu === 'tichu') inf += ' <span class="chip red">' + STR.tichuBadge + '</span>';
+  if (si.out) inf += ' <span class="chip gold">' + STR.finishRank[si.outRank - 1] + ' ' + STR.out + '!</span>';
+  inf += ' <span class="chip dim">' + si.trickPoints + STR.pilePts + '</span>';
+  if (you.received && you.received.length && si.handCount === 14 && g.phase === 'play' && !state.office) {
+    inf += ' <span class="chip dim">' + STR.received + ': ' +
+      you.received.map(function (r) { return esc(C.cardName(r.card)); }).join(' ') + '</span>';
+  }
+  var bomb = availableBomb();
+  if (bomb) inf += ' <button class="btn small danger" data-act="bomb-hint">' + (state.office ? '' : '💥 ') + STR.bombHint + '</button>';
+  html += '<div class="meInfo">' + inf + '</div>';
+
+  // 손패
+  var exMode = g.phase === 'exchange' && !you.exchangeSubmitted;
+  html += '<div class="hand">';
+  var wishR = (!exMode && you.mustFulfillWish && g.wish) ? g.wish : null;
+  you.hand.forEach(function (id) {
+    var cls = '', attrs = '';
+    if (exMode) {
+      var slot = state.exch.indexOf(id);
+      if (slot >= 0) {
+        cls = 'give';
+        attrs = 'data-to="' + esc(exTargetName(slot)) + '"';
+      }
+    } else if (state.sel[id]) cls = 'sel';
+    // 소원 의무 시 내야 하는 랭크 카드 강조
+    if (wishR && !C.isSpecial(id) && C.rankOf(id) === wishR) cls += ' wishhi';
+    html += cardHtml(id, cls, attrs);
+  });
+  html += '</div>';
+
+  // 액션 영역
+  if (exMode) {
+    html += '<div class="exRow">';
+    for (var i = 0; i < 3; i++) {
+      var id2 = state.exch[i];
+      html += '<div class="exSlot' + (id2 ? ' filled' : '') + '" data-act="ex-slot" data-i="' + i + '">' +
+        '<span class="who">' + esc(exTargetName(i)) + '</span>' +
+        (id2 ? '<span>' + esc(C.cardName(id2)) + '</span>' : '<span style="opacity:.5">카드 선택</span>') + '</div>';
+    }
+    html += '</div>';
+    html += '<div class="actions">' +
+      (you.canCallTichu ? tichuBtnHtml() : '') +
+      '<button class="btn primary" data-act="ex-confirm"' + (state.exch.every(Boolean) ? '' : ' disabled') + '>' + STR.exchangeConfirm + '</button></div>';
+    html += '<div class="comboHint">' + (state.tichuArmed ? STR.confirmHint : STR.exchangeTitle) + '</div>';
+  } else if (g.phase === 'exchange') {
+    html += '<div class="comboHint">' + STR.exchangeWaiting + '</div>';
+  } else if (g.phase === 'play' || g.phase === 'dragon') {
+    var ev = evalSelection();
+    var canPass = myTurn() && g.currentCombo && !(you.mustFulfillWish);
+    html += '<div class="actions">' +
+      (you.canCallTichu ? tichuBtnHtml() : '') +
+      '<button class="btn" data-act="pass"' + (canPass ? '' : ' disabled') + '>' + STR.pass + '</button>' +
+      '<button class="btn primary" data-act="play"' + (ev && ev.legal ? '' : ' disabled') + '>' + STR.play + '</button>' +
+    '</div>';
+    html += '<div class="comboHint">' + (state.tichuArmed ? STR.confirmHint : (ev ? esc(ev.label) : '')) + '</div>';
+  } else if (g.phase === 'grand') {
+    html += '<div class="comboHint">처음 8장입니다</div>';
+  }
+  html += '</div>';
+  return html;
+}
+function targetPicker() {
+  return '<div class="targetRow"><span class="targetLbl">' + STR.targetScore + '</span>' +
+    [300, 500, 1000].map(function (n) {
+      return '<button class="btn small ' + (state.lobbyTarget === n ? 'primary' : 'ghost') +
+        '" data-act="target" data-n="' + n + '">' + n + '</button>';
+    }).join('') + '</div>';
+}
+function tichuBtnHtml() {
+  return state.tichuArmed
+    ? '<button class="btn danger" data-act="tichu">' + STR.tichuConfirm + '</button>'
+    : '<button class="btn ghost" data-act="tichu">' + STR.tichuBtn + '</button>';
+}
+function exTargetName(slot) {
+  var labels = ['왼쪽', '파트너', '오른쪽'];
+  return labels[slot] + ' · ' + seatName(relSeat(slot + 1));
+}
+
+// ---------- 모달 ----------
+function renderModal() {
+  if (state.replaced) {
+    return '<div class="backdrop center"><div class="sheet"><h2>' + STR.replaced + '</h2></div></div>';
+  }
+  var g = game();
+  if (state.help) return helpModal();
+  if (!g) return '';
+  if (g.phase === 'grand' && g.you && g.you.canCallGrand) {
+    var eight = g.you.hand.map(function (id) { return cardHtml(id, 'sm'); }).join('');
+    // 위험한 선택(그랜드)은 강조하지 않고, 안전한 '선언 안 함'을 기본 강조 — 초심자 오터치 방지
+    return '<div class="backdrop"><div class="sheet"><h2>' + STR.grandTitle + '</h2>' +
+      '<div class="desc">' + STR.grandDesc + '</div>' +
+      '<div class="grandCards">' + eight + '</div>' +
+      '<div class="row"><button class="btn primary grow" data-act="grand-no">' + STR.grandPass + '</button>' +
+      '<button class="btn danger grow" data-act="grand-yes">' + STR.grandCall + '</button></div>' +
+      '<div class="comboHint" style="margin-top:10px">' + STR.firstTimeHint + '</div>' +
+      '<button class="btn ghost" style="width:100%;margin-top:6px" data-act="help-modal">' + STR.rulesBtn + '</button>' +
+      '</div></div>';
+  }
+  if (state.wishCards) {
+    var btns = '';
+    for (var r = 2; r <= 14; r++) btns += '<button class="btn ghost" data-act="wish" data-r="' + r + '">' + C.rankLabel(r) + '</button>';
+    return '<div class="backdrop" data-dismiss="wish-cancel"><div class="sheet"><h2>' + STR.wishTitle + '</h2>' +
+      '<div class="desc">' + STR.wishDesc + '</div>' +
+      '<div class="wishGrid">' + btns + '</div>' +
+      '<div class="row"><button class="btn ghost grow" data-act="wish-cancel">' + STR.wishCancel + '</button>' +
+      '<button class="btn grow" data-act="wish" data-r="0">' + STR.wishNone + '</button></div></div></div>';
+  }
+  if (g.phase === 'dragon' && g.dragonChooser === mySeat()) {
+    var a = relSeat(1), b = relSeat(3);
+    return '<div class="backdrop"><div class="sheet"><h2>' + STR.dragonTitle + '</h2>' +
+      '<div class="row">' +
+      '<button class="btn grow" data-act="dragon" data-seat="' + a + '">' + esc(seatName(a)) + '</button>' +
+      '<button class="btn grow" data-act="dragon" data-seat="' + b + '">' + esc(seatName(b)) + '</button>' +
+      '</div></div></div>';
+  }
+  if (g.phase === 'roundEnd' || g.phase === 'gameEnd') return summaryModal(g);
+  return '';
+}
+
+function summaryModal(g) {
+  var sum = g.roundSummary;
+  if (!sum) return '';
+  var meA = myTeamKey() === 'teamA';
+  function pair(o) { return meA ? [o.teamA, o.teamB] : [o.teamB, o.teamA]; }
+  var html = '<div class="backdrop center"><div class="sheet">';
+  if (g.phase === 'gameEnd') {
+    var won = (sum.winnerTeam === 'A') === meA;
+    html += '<div class="winBig">' + (won ? (state.office ? '' : '🏆 ') + '우리 팀 ' + STR.winA : '상대 팀 승리') + '</div>';
+  }
+  html += '<h2>' + STR.roundEndTitle + ' (' + sum.round + 'R)</h2><table class="sumTable">';
+  if (sum.oneTwoTeam) {
+    var otMine = (sum.oneTwoTeam === 'A') === meA;
+    html += '<tr><td>' + STR.oneTwo + '</td><td colspan="2">' + (otMine ? STR.myTeam : STR.oppTeam) + ' 팀</td></tr>';
+  } else if (sum.cardPoints) {
+    var cp = pair(sum.cardPoints);
+    html += '<tr><td>' + STR.cardPts + '</td><td>' + cp[0] + '</td><td>' + cp[1] + '</td></tr>';
+  }
+  sum.bonuses.forEach(function (b) {
+    var lbl = (b.call === 'grand' ? '그랜드 티츄' : '티츄') + ' — ' + esc(seatName(b.seat));
+    html += '<tr><td>' + lbl + ' ' + (b.made ? '성공' : '실패') + '</td><td colspan="2">' + (b.delta > 0 ? '+' : '') + b.delta + '</td></tr>';
+  });
+  var d = pair(sum.deltas), t = pair(sum.totals);
+  html += '<tr><td>이번 라운드</td><td>' + (d[0] > 0 ? '+' : '') + d[0] + '</td><td>' + (d[1] > 0 ? '+' : '') + d[1] + '</td></tr>';
+  html += '<tr class="tot"><td>' + STR.total + ' (' + STR.myTeam + ':' + STR.oppTeam + ')</td><td>' + t[0] + '</td><td>' + t[1] + '</td></tr>';
+  html += '</table>';
+  // 방장이 끊겨 있으면 다른 사람도 진행 가능 (서버도 허용) — 결과창 무한 대기 방지
+  var hsi = state.snap.roomSeats[state.snap.hostSeat];
+  var canAdvance = isHost() || (hsi && !hsi.connected);
+  if (g.phase === 'gameEnd') {
+    html += canAdvance ? '<button class="btn primary" style="width:100%" data-act="restart">' + STR.newGame + '</button>'
+                       : '<div class="desc">' + STR.hostWillContinue + '</div>';
+  } else {
+    html += canAdvance ? '<button class="btn primary" style="width:100%" data-act="next-round">' + STR.nextRound + '</button>'
+                       : '<div class="desc">' + STR.hostWillContinue + '</div>';
+  }
+  if (g.history && g.history.length) {
+    html += '<button class="btn ghost" style="width:100%;margin-top:8px" data-act="history-toggle">' +
+      STR.historyBtn + (state.showHistory ? ' ▲' : ' ▼') + '</button>';
+    if (state.showHistory) html += historyTable(g);
+  }
+  html += '</div></div>';
+  return html;
+}
+
+function historyTable(g) {
+  var meA = myTeamKey() === 'teamA';
+  var rows = g.history.map(function (h) {
+    var d = meA ? [h.deltas.teamA, h.deltas.teamB] : [h.deltas.teamB, h.deltas.teamA];
+    var t = meA ? [h.totals.teamA, h.totals.teamB] : [h.totals.teamB, h.totals.teamA];
+    return '<tr><td>' + h.round + 'R</td>' +
+      '<td>' + (d[0] > 0 ? '+' : '') + d[0] + ' / ' + (d[1] > 0 ? '+' : '') + d[1] + '</td>' +
+      '<td>' + t[0] + ' : ' + t[1] + '</td></tr>';
+  }).join('');
+  return '<table class="sumTable" style="margin-top:6px"><tr style="opacity:.7"><td>라운드</td><td>증감(우리/상대)</td><td>누적</td></tr>' + rows + '</table>';
+}
+
+function helpModal() {
+  return '<div class="backdrop center"><div class="sheet" style="max-height:80vh;overflow:auto">' +
+    '<h2>티츄 간단 규칙</h2>' +
+    '<div style="font-size:13px;line-height:1.7;opacity:.9">' +
+    '<b>게임 흐름</b><br>' +
+    '① 처음 8장을 보고 그랜드 티츄 여부 결정(보통 「선언 안 함」).<br>' +
+    '② 나머지 6장을 받고, 양옆·파트너에게 1장씩 <b>교환</b>(파트너에겐 좋은 카드, 상대에겐 낮은 카드).<br>' +
+    '③ 돌아가며 카드를 냄. <b>이전 사람보다 높게</b> 내거나 <b>패스</b>. 나머지 3명이 모두 패스하면 마지막에 낸 사람이 그 트릭을 먹고 다음 선이 됨.<br>' +
+    '④ 손패를 먼저 비우는 순서대로 1~4등. 같은 팀이 1·2등이면 즉시 라운드 종료(원투).<br><br>' +
+    '<b>규칙 상세</b><br>' +
+    '· 2:2 팀전. 마주 보는 자리가 한 팀, 1000점(또는 방장이 정한 점수) 선취.<br>' +
+    '· 조합: 싱글/페어/트리플/풀하우스/스트레이트(5+)/연속페어. 같은 형태·장수만 더 높게 낼 수 있음.<br>' +
+    '· 폭탄: 같은 숫자 4장, 같은 무늬 연속 5장+. 무엇이든 이기고 차례 없이 끼어들기 가능.<br>' +
+    '· <b>마작(1)</b>: 가장 낮은 카드, 보유자가 첫 선. 내면서 소원 숫자 선언 → 다른 사람은 낼 수 있으면 반드시 그 숫자를 내야 함.<br>' +
+    '· <b>개</b>: 선일 때만. 파트너에게 선을 넘김.<br>' +
+    '· <b>불사조</b>: 어떤 카드든 대신(폭탄 제외). 싱글로는 직전 카드+0.5 (용은 못 이김). -25점.<br>' +
+    '· <b>용</b>: 가장 높은 싱글, +25점. 용으로 먹은 트릭은 상대팀에게 줘야 함.<br>' +
+    '· 점수 카드: 5(5점), 10·K(10점). 막내의 트릭은 1등에게, 손패는 상대팀에게.<br>' +
+    '· <b>티츄</b>(첫 카드 전 선언, ±100) / <b>그랜드 티츄</b>(8장 보고, ±200): 선언자가 1등 완주해야 성공.<br>' +
+    '· <b>원투</b>: 한 팀이 1·2등 완주 시 +200 (카드점수 무시).' +
+    '</div>' +
+    '<div class="row"><button class="btn grow" data-act="help-close">닫기</button></div>' +
+  '</div></div>';
+}
+
+// ---------- 인터랙션 ----------
+function onCardTap(id) {
+  var g = game();
+  if (!g || !g.you) return;
+  if (g.phase === 'exchange' && !g.you.exchangeSubmitted) {
+    var idx = state.exch.indexOf(id);
+    if (idx >= 0) state.exch[idx] = null;
+    else {
+      var empty = state.exch.indexOf(null);
+      if (empty < 0) { toast('슬롯이 가득 찼습니다 — 슬롯을 눌러 비우세요'); return; }
+      state.exch[empty] = id;
+    }
+    render();
+    return;
+  }
+  if (g.phase === 'play') {
+    if (state.sel[id]) delete state.sel[id];
+    else state.sel[id] = true;
+    render();
+  }
+}
+
+function doPlay() {
+  var ev = evalSelection();
+  if (!ev || !ev.legal) return;
+  var ids = selectedIds();
+  if (ids.indexOf('MJ') >= 0) {
+    state.wishCards = ids;
+    render();
+    return;
+  }
+  state.sel = {};
+  send({ type: 'play_cards', cards: ids });
+  render();
+}
+
+function onClick(e) {
+  // 모달 바깥(backdrop) 직접 클릭 → 지정된 닫기 동작
+  if (e.target.dataset && e.target.dataset.dismiss) {
+    if (e.target.dataset.dismiss === 'wish-cancel') { state.wishCards = null; render(); }
+    return;
+  }
+  var card = e.target.closest('[data-card]');
+  if (card && card.closest('.hand')) { onCardTap(card.getAttribute('data-card')); return; }
+  var el = e.target.closest('[data-act]');
+  if (!el) return;
+  var act = el.getAttribute('data-act');
+  var seat = el.hasAttribute('data-seat') ? +el.getAttribute('data-seat') : null;
+  switch (act) {
+    case 'create':
+      ensureOnline(function () { send({ type: 'create_room', name: state.name }); });
+      break;
+    case 'join': {
+      saveName();
+      var code = ($('#code') ? $('#code').value : '').trim().toUpperCase();
+      if (code.length !== 4) { toast('방 코드 4자리를 입력하세요'); break; }
+      joinRoom(code);
+      break;
+    }
+    case 'solo': saveName(); startSolo(false); break;
+    case 'solo-resume': saveName(); startSolo(true); break;
+    case 'sit': send({ type: 'take_seat', seat: seat }); break;
+    case 'bot-add': send({ type: 'add_bot', seat: seat }); break;
+    case 'bot-del': send({ type: 'remove_bot', seat: seat }); break;
+    case 'kick': send({ type: 'kick_player', seat: seat }); break;
+    case 'start': send({ type: 'start_game', targetScore: state.lobbyTarget }); break;
+    case 'target': state.lobbyTarget = +el.getAttribute('data-n'); render(); break;
+    case 'copy': {
+      var url = location.origin + location.pathname + '?room=' + (state.snap ? state.snap.code : '');
+      (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject()).then(
+        function () { toast(STR.copied); },
+        function () { toast(url); }
+      );
+      break;
+    }
+    case 'leave': {
+      var g0 = game();
+      var inGame = g0 && g0.phase !== 'lobby' && g0.phase !== 'gameEnd';
+      if (inGame && typeof confirm === 'function' && !confirm(STR.leaveConfirm)) break;
+      if (state.session && state.session.mode === 'online') send({ type: 'leave_room' });
+      destroySession();
+      state.screen = 'home';
+      state.conn = { s: '', mode: '' };
+      render();
+      break;
+    }
+    case 'grand-yes': send({ type: 'call_grand', call: true }); break;
+    case 'grand-no': send({ type: 'call_grand', call: false }); break;
+    case 'tichu':
+      // 2탭 확인 — 오터치로 -100 확정 방지
+      if (!state.tichuArmed) {
+        state.tichuArmed = Date.now();
+        clearTimeout(tichuArmTimer);
+        tichuArmTimer = setTimeout(function () { state.tichuArmed = 0; render(); }, 3000);
+        render();
+      } else {
+        state.tichuArmed = 0;
+        clearTimeout(tichuArmTimer);
+        send({ type: 'call_tichu' });
+        render();
+      }
+      break;
+    case 'pass': send({ type: 'pass_turn' }); break;
+    case 'play': doPlay(); break;
+    case 'wish': {
+      var r = +el.getAttribute('data-r');
+      var cards = state.wishCards || [];
+      state.wishCards = null;
+      state.sel = {};
+      var a = { type: 'play_cards', cards: cards };
+      if (r >= 2) a.wish = r;
+      send(a);
+      render();
+      break;
+    }
+    case 'dragon': send({ type: 'give_dragon', toSeat: seat }); break;
+    case 'ex-slot': {
+      var i = +el.getAttribute('data-i');
+      state.exch[i] = null;
+      render();
+      break;
+    }
+    case 'ex-confirm': {
+      if (!state.exch.every(Boolean)) break;
+      var give = {};
+      give[relSeat(1)] = state.exch[0];
+      give[relSeat(2)] = state.exch[1];
+      give[relSeat(3)] = state.exch[2];
+      send({ type: 'submit_exchange', give: give });
+      break;
+    }
+    case 'bomb-hint': {
+      var bomb = availableBomb();
+      if (bomb) {
+        state.sel = {};
+        bomb.cards.forEach(function (id) { state.sel[id] = true; });
+        render();
+      }
+      break;
+    }
+    case 'next-round': send({ type: 'next_round' }); break;
+    case 'restart': send({ type: 'restart_game' }); break;
+    case 'help-open': state.help = true; state.helpFromModal = false; render(); break;
+    case 'help-modal': state.help = true; state.helpFromModal = true; render(); break;
+    case 'help-close': state.help = false; state.helpFromModal = false; render(); break;
+    case 'wish-cancel': state.wishCards = null; render(); break;
+    case 'history-toggle': state.showHistory = !state.showHistory; render(); break;
+    case 'kick-seat': send({ type: 'kick_player', seat: seat }); break;
+    case 'office-toggle':
+      state.office = !state.office;
+      try { localStorage.setItem('tichu.office', state.office ? '1' : '0'); } catch (e2) {}
+      render();
+      break;
+  }
+}
+
+// ---------- 초기화 ----------
+function init() {
+  appEl = $('#app');
+  toastEl = $('#toast');
+  appEl.addEventListener('click', onClick);
+  state.name = '';
+  try { state.name = localStorage.getItem('tichu.name') || ''; } catch (e) {}
+  try { state.office = localStorage.getItem('tichu.office') === '1'; } catch (e) {}
+  state.urlRoom = (new URLSearchParams(location.search).get('room') || '').toUpperCase().slice(0, 4);
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    navigator.serviceWorker.register('sw.js').catch(function () {});
+  }
+  window.addEventListener('resize', fitHand);
+  // 저장된 온라인 세션 자동 복귀
+  var hasToken = false;
+  try { hasToken = !!localStorage.getItem('tichu.token'); } catch (e) {}
+  if (hasToken && navigator.onLine !== false) {
+    state.session = OnlineSession.create(handlers);
+    state.session.connect(state.name);
+  }
+  render();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+else init();
+})();

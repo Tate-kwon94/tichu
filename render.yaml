@@ -1,0 +1,11 @@
+# Render.com 무료 배포 설정 (Blueprint)
+# 사용법: 이 폴더를 GitHub 저장소로 올린 뒤 Render에서 "New > Blueprint"로 연결
+services:
+  - type: web
+    name: tichu
+    runtime: node
+    plan: free
+    buildCommand: "echo no-build"
+    startCommand: "node server.js"
+    healthCheckPath: /healthz
+    autoDeploy: true

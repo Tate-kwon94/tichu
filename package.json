@@ -1,0 +1,13 @@
+{
+  "name": "tichu",
+  "version": "1.0.0",
+  "description": "웹 티츄 — 4인 파트너 카드게임 (의존성 0)",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/run-tests.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

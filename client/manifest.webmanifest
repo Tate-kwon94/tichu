@@ -1,0 +1,17 @@
+{
+  "name": "티츄",
+  "short_name": "티츄",
+  "description": "4인 파트너 카드게임 티츄 — 친구들과 온라인 또는 봇과 연습",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0e2c1f",
+  "theme_color": "#14352a",
+  "lang": "ko",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
