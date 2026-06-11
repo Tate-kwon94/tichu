@@ -45,6 +45,9 @@ function create(handlers) {
       case 'action_ack':
         if (handlers.onAck) handlers.onAck(msg);
         break;
+      case 'chat':
+        if (handlers.onChat) handlers.onChat(msg);
+        break;
       case 'session_replaced':
         alive = false;
         teardown();

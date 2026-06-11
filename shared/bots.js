@@ -169,21 +169,44 @@ function botPlay(game, seat) {
   return null;
 }
 
+// ---------- 쉬움 난이도: 선언 안 함, 자주 패스, 무작위성 ----------
+function botPlayEasy(game, seat) {
+  var hand = game.hands[seat];
+  var cur = game.currentCombo;
+  var g = genMoves(hand, cur, game.wish);
+  var moves = g.moves;
+  if (!moves.length) return null;
+  if (g.forced) return cheapest(moves, false); // 소원 의무는 지킴
+  var sorted = moves.slice().sort(function (x, y) { return x.combo.rank - y.combo.rank; });
+  if (!cur) {
+    // 리드: 낮은 절반 중 무작위 (방향성 없는 플레이)
+    var pool = sorted.filter(function (m) { return !isBomb(m.combo.type); });
+    if (!pool.length) pool = sorted;
+    pool = pool.slice(0, Math.max(1, Math.ceil(pool.length / 2)));
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+  if (Math.random() < 0.3) return null; // 이길 수 있어도 종종 패스
+  var nonBomb = sorted.filter(function (m) { return !isBomb(m.combo.type); });
+  var pool2 = (nonBomb.length ? nonBomb : sorted).slice(0, 3);
+  return pool2[Math.floor(Math.random() * pool2.length)];
+}
+
 // ---------- 통합 의사결정: 현재 상태에서 seat가 할 액션 ----------
-function botDecide(game, seat) {
+function botDecide(game, seat, level) {
+  var easy = level === 'easy';
   var phase = game.phase;
   if (phase === 'grand' && !game.grandAnswered[seat]) {
-    return { type: 'call_grand', seat: seat, call: botGrand(game.hands[seat]) };
+    return { type: 'call_grand', seat: seat, call: easy ? false : botGrand(game.hands[seat]) };
   }
   if (phase === 'exchange' && !game.exchangeGive[seat]) {
-    if (!game.tichu[seat] && botTichu(game.hands[seat])) return { type: 'call_tichu', seat: seat };
+    if (!easy && !game.tichu[seat] && botTichu(game.hands[seat])) return { type: 'call_tichu', seat: seat };
     return { type: 'submit_exchange', seat: seat, give: botExchange(game, seat) };
   }
   if (phase === 'dragon' && game.dragonChooser === seat) {
     return { type: 'give_dragon', seat: seat, toSeat: botDragon(game, seat) };
   }
   if (phase === 'play' && game.turnSeat === seat && game.finished.indexOf(seat) < 0) {
-    var mv = botPlay(game, seat);
+    var mv = easy ? botPlayEasy(game, seat) : botPlay(game, seat);
     if (!mv) return { type: 'pass_turn', seat: seat };
     var a = { type: 'play_cards', seat: seat, cards: mv.cards };
     if (mv.cards.indexOf('MJ') >= 0) {

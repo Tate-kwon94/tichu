@@ -29,6 +29,7 @@ input { font: inherit; }
   background: #2e7d5b; color: #fff; font-weight: 700; font-size: 16px;
   border: 1px solid rgba(255,255,255,.18);
   transition: transform .06s, opacity .15s;
+  white-space: nowrap; /* "나가기"가 "나가\n기"로 꺾이는 것 방지 */
 }
 .btn:active { transform: scale(.97); }
 .btn.primary { background: #ffd34d; color: #2b2412; border-color: #c8a22e; }
@@ -42,6 +43,7 @@ input { font: inherit; }
   display: inline-flex; align-items: center; gap: 4px;
   padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 700;
   background: rgba(0,0,0,.35);
+  white-space: nowrap; /* "1R · 1000점" 줄바꿈 깨짐 방지 */
 }
 .chip.gold { background: #ffd34d; color: #2b2412; }
 .chip.red { background: #d6493a; color: #fff; }
@@ -98,7 +100,16 @@ input { font: inherit; }
   display: flex; align-items: center; gap: 8px; padding: 8px 12px;
   font-size: 13px; background: rgba(0,0,0,.25);
 }
-.ghead .score { font-weight: 800; font-size: 16px; }
+.ghead .score { font-weight: 800; font-size: 16px; white-space: nowrap; }
+#connTxt { white-space: nowrap; }
+/* 좁은 화면: 헤더 압축 — 점수·버튼이 한 줄에 들어가게 */
+@media (max-width: 430px) {
+  .ghead { gap: 5px; padding: 6px 6px; }
+  .ghead #connTxt { display: none; } /* 연결 상태는 점 색으로 충분 */
+  .ghead .score { font-size: 14px; }
+  .ghead .chip { font-size: 11px; padding: 2px 7px; }
+  .ghead .btn.small { padding: 4px 8px; min-height: 30px; font-size: 12px; }
+}
 .ghead .score .a { color: #ffd34d; }
 .ghead .score .b { color: #ff8d8d; }
 .connDot { width: 9px; height: 9px; border-radius: 50%; background: #51d88a; flex: none; }
@@ -152,7 +163,8 @@ input { font: inherit; }
 .card .cr {
   position: absolute; top: 4px; left: 5px;
   display: flex; flex-direction: column; align-items: center;
-  font-size: 14px; font-weight: 800; line-height: 1; z-index: 1;
+  font-size: 14px; font-weight: 800; line-height: 1;
+  /* z-index 금지 — 부모 스태킹 컨텍스트로 떠올라 옆 카드 위로 글자가 침범함(DOG 사례) */
 }
 .card .cr .su { font-size: 10px; margin-top: 1px; }
 .card .cr.flip { top: auto; left: auto; bottom: 4px; right: 5px; transform: rotate(180deg); }
@@ -163,12 +175,13 @@ input { font: inherit; }
   font-size: 27px; opacity: .95;
 }
 .card.sm .cp { font-size: 19px; }
-/* 특수 카드: 상단 색 밴드 + 큰 그림 */
-.card.sp .em {
+/* 특수 카드: 상단 색 밴드 + 일러스트(SVG) */
+.card.sp .spArt {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-  font-size: 27px; padding-top: 10px;
+  padding: 15px 5px 6px;
 }
-.card.sm.sp .em { font-size: 19px; padding-top: 8px; }
+.card.sp .spArt svg { width: 100%; height: 100%; }
+.card.sm.sp .spArt { padding: 11px 3px 4px; }
 .spBand {
   position: absolute; top: 0; left: 0; right: 0; text-align: center;
   font-size: 9px; font-weight: 800; color: #fff; padding: 3px 0 2px;
@@ -265,7 +278,70 @@ input { font: inherit; }
 
 /* ---------- 목표 점수 선택 ---------- */
 .targetRow { display: flex; align-items: center; gap: 6px; justify-content: center; margin-bottom: 8px; }
-.targetLbl { font-size: 13px; opacity: .8; }
+.targetLbl { font-size: 13px; opacity: .8; white-space: nowrap; flex: none; }
+
+/* ---------- 방 목록 ---------- */
+.roomList {
+  background: rgba(0,0,0,.22); border-radius: 14px; padding: 10px 12px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.rlHead { font-size: 13px; font-weight: 800; opacity: .85; display: flex; align-items: center; gap: 8px; }
+.roomRow {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  min-height: 46px; padding: 8px 12px; border-radius: 12px;
+  background: rgba(255,255,255,.08); color: #fff; font-size: 15px;
+  border: 1px solid rgba(255,255,255,.15); text-align: left;
+}
+.roomRow:active { transform: scale(.98); }
+.rlEmpty { font-size: 13px; opacity: .55; text-align: center; padding: 8px 0; }
+body.office .roomList { background: #fff; border: 1px solid #d4d4d4; }
+body.office .roomRow { background: #fff; color: #222; border: 1px solid #d4d4d4; }
+body.office .rlHead { color: #444; opacity: 1; }
+body.office .rlEmpty { color: #888; opacity: 1; }
+
+/* ---------- 채팅 ---------- */
+.chatBtn { position: relative; }
+.chatBtn .unbadge {
+  position: absolute; top: -6px; right: -6px; min-width: 17px; height: 17px;
+  background: #d6493a; color: #fff; border-radius: 999px;
+  font-size: 11px; font-weight: 800; line-height: 17px; padding: 0 4px; text-align: center;
+}
+.chatPanel {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 45;
+  max-width: 760px; margin: 0 auto; max-height: 62%;
+  display: flex; flex-direction: column;
+  background: #1c3b2c; border-radius: 18px 18px 0 0;
+  box-shadow: 0 -8px 30px rgba(0,0,0,.5);
+  padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+  animation: up .18s ease-out;
+}
+.chatHead { padding-bottom: 4px; font-size: 15px; }
+.chatList { overflow-y: auto; min-height: 70px; max-height: 32vh; font-size: 14px; line-height: 1.6; padding: 4px 2px; }
+.chatRow { word-break: break-word; }
+.chatRow b { color: #ffd34d; margin-right: 6px; }
+.chatRow.mine b { color: #9fd6ff; }
+.chatEmpty { opacity: .5; text-align: center; padding: 18px 0; font-size: 13px; }
+.chatPresets { padding: 6px 0 2px; flex-wrap: wrap; }
+.chatInRow input {
+  flex: 1; min-width: 0; min-height: 44px; border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.25); background: rgba(0,0,0,.25);
+  color: #fff; padding: 8px 12px; font-size: 15px;
+}
+.chatInRow input::placeholder { color: rgba(255,255,255,.4); }
+.bubble {
+  position: absolute; top: calc(100% + 5px); left: 50%; transform: translateX(-50%);
+  background: #fff; color: #222; font-size: 12px; font-weight: 600;
+  padding: 5px 10px; border-radius: 10px; box-shadow: 0 3px 10px rgba(0,0,0,.35);
+  white-space: nowrap; max-width: 120px; overflow: hidden; text-overflow: ellipsis; z-index: 6;
+  pointer-events: none; /* 카드/버튼 터치 방해 금지 */
+}
+/* 좌우 가장자리 패널 말풍선은 화면 밖으로 나가지 않게 안쪽 정렬 */
+.opp:first-child .bubble { left: 0; transform: none; }
+.opp:last-child .bubble { left: auto; right: 0; transform: none; }
+.bubble::before {
+  content: ''; position: absolute; top: -5px; left: 50%; transform: translateX(-50%);
+  border: 5px solid transparent; border-bottom-color: #fff; border-top: 0;
+}
 
 /* ==================================================
    엑셀 위장 모드 (▦) — 스프레드시트처럼 보이게
@@ -315,8 +391,10 @@ body.office .card::after { display: none; }
 body.office .card.spMJ, body.office .card.spDG, body.office .card.spPH, body.office .card.spDR { background: #fff; }
 /* 셀처럼 좌상단 텍스트만 — 중앙 무늬/회전 인덱스 숨김 */
 body.office .card .cp, body.office .card .cr.flip { display: none; }
-body.office .card .cr { flex-direction: row; gap: 2px; font-weight: 600; align-items: baseline; }
+body.office .card .cr { flex-direction: row; gap: 2px; font-weight: 600; align-items: baseline; max-width: calc(100% - 8px); overflow: hidden; }
 body.office .card .cr .su { font-size: 12px; margin-top: 0; }
+body.office .card.sp .cr { font-size: 11px; letter-spacing: 0; } /* DOG/PHX/DRG가 카드 폭 안에 들어가게 */
+body.office .unbadge { background: #8a8a8a; }
 body.office .hand .card.sel { transform: none; box-shadow: inset 0 0 0 2px #217346; background: #e9f3ec; }
 body.office .hand .card.give { transform: none; box-shadow: inset 0 0 0 2px #2a62c4; background: #eaf1fb; }
 body.office .hand .card.give::after { background: #2a62c4; color: #fff; }
@@ -341,6 +419,11 @@ body.office .seatCard.teamB { border-color: #e3c6c6; }
 body.office .seatCard.me { background: #eef6ee; }
 body.office .seatCard .tag, body.office .lobbyHint { color: #888; opacity: 1; }
 body.office #toast { background: #444; }
+body.office .chatPanel { background: #fff; color: #222; border: 1px solid #adadad; box-shadow: 0 -6px 20px rgba(0,0,0,.2); }
+body.office .chatRow b { color: #217346; }
+body.office .chatRow.mine b { color: #2a62c4; }
+body.office .chatInRow input { background: #fff; border: 1px solid #adadad; color: #222; }
+body.office .bubble { border: 1px solid #c8c8c8; box-shadow: 0 2px 6px rgba(0,0,0,.15); font-weight: 400; }
 body.office .meArea.myturn { box-shadow: inset 0 3px 0 #217346; }
 body.office .turnBanner { animation: none; } /* 엑셀 화면에서 깜빡이면 의심 — 펄스 끔 */
 body.office .hand .card.wishhi { box-shadow: inset 0 0 0 2px #217346; }

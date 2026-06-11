@@ -41,6 +41,7 @@ PollClient.prototype.loop = async function () {
       for (var i = 0; i < msgs.length; i++) {
         var x = msgs[i];
         if (x.type === 'room_state' && x.version > this.version) { this.version = x.version; this.snap = x.snapshot; }
+        if (x.type === 'chat') (this.chats = this.chats || []).push(x);
       }
     } catch (e) { await sleep(200); }
   }
@@ -73,6 +74,8 @@ WSClient.prototype.hello = function () {
         if (m.version > self.version) { self.version = m.version; self.snap = m.snapshot; }
       } else if (m.type === 'action_ack') {
         self.acks.push(m);
+      } else if (m.type === 'chat') {
+        (self.chats = self.chats || []).push(m);
       }
     };
     ws.onerror = function (e) { clearTimeout(to); reject(new Error('WS 오류')); };
@@ -192,6 +195,14 @@ async function main() {
     var again = await post({ token: c1.token, action: { type: 'take_seat', seat: c1.snap.youSeat, actionId: '철수-' + c1.n } });
     if (JSON.stringify(idem1) !== JSON.stringify(again)) throw new Error('멱등 ack 불일치');
     console.log('4) ROOM_FULL/멱등성 OK');
+
+    // 채팅: WS 클라이언트가 보내고 poll 클라이언트가 수신
+    await c0.send({ type: 'chat', text: '점검 채팅 <스크립트>' });
+    await sleep(700);
+    if (!c1.chats || !c1.chats.length) throw new Error('poll 클라이언트 채팅 미수신');
+    if (c1.chats[0].text.indexOf('점검 채팅') < 0) throw new Error('채팅 내용 불일치: ' + c1.chats[0].text);
+    if (!c2.chats || !c2.chats.length) throw new Error('WS 클라이언트 채팅 미수신');
+    console.log('4.5) 채팅 브로드캐스트 OK (WS→poll/WS, 내용: ' + JSON.stringify(c1.chats[0].text) + ')');
 
     // 게임 시작
     await c0.send({ type: 'start_game' });

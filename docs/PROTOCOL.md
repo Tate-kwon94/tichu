@@ -36,7 +36,8 @@
 | `set_name` | `name` | 대기실에서만, 12자 |
 | `add_bot` / `remove_bot` | `seat` | 방장만, 대기실에서만 |
 | `kick_player` | `seat` | 방장만. 게임 중이면 그 자리는 봇으로 전환 |
-| `start_game` | — | 방장만. 빈자리 봇 채움 → grand 단계 |
+| `start_game` | `targetScore?`(300/500/1000), `botLevel?`(easy/normal) | 방장만. 빈자리 봇 채움 → grand 단계 |
+| `list_rooms` | — | 방 목록. ack에 `rooms:[{code,host,occupied,humans,inGame,target}]` 포함 (최신순, 최대 30) |
 | `leave_room` | — | 게임 중 나가면 영구 봇 전환 |
 | `call_grand` | `call`(bool) | 8장 보고 응답. 4명 모두 응답하면 6장 추가 배분 → exchange |
 | `call_tichu` | — | 자기 첫 플레이 전까지 |
@@ -45,6 +46,7 @@
 | `pass_turn` | `version` | 선두/소원 이행 가능 시 거부 |
 | `give_dragon` | `toSeat` | 용 트릭 승자가 상대팀 좌석 지정 |
 | `next_round` / `restart_game` | — | 방장(끊겨 있으면 아무 사람) |
+| `chat` | `text`(≤200자) | 방 전체에 브로드캐스트. 제어문자 제거, 0.6초 레이트리밋. 게임 version은 올리지 않음 |
 
 **version 규칙**: `pass_turn`은 version 불일치 시 `STALE_VERSION`(클라이언트는 조용히 무시).
 `play_cards`는 불일치 시 폭탄(bomb4/bombstraight)일 때만 현재 상태 기준으로 재검증 허용.
@@ -58,6 +60,7 @@
 | `action_ack` | `actionId`, `ok`, `version`, `error?{code,message}` |
 | `session_replaced` | — (같은 토큰의 새 연결이 생겨 이 연결이 대체됨) |
 | `left_room` | `reason`: `kicked` / `room_closed` / `left` |
+| `chat` | `seat`, `name`, `text`, `ts` — 스냅샷과 별개 이벤트(버전 무관). 모르는 type은 무시해도 됨 |
 
 에러코드: `ROOM_NOT_FOUND, ROOM_FULL, GAME_IN_PROGRESS, SEAT_TAKEN, NOT_HOST, BAD_PHASE,
 NOT_YOUR_TURN, CARDS_NOT_IN_HAND, INVALID_COMBO, COMBO_TOO_LOW, WISH_REQUIRED,

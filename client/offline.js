@@ -5,8 +5,9 @@ var OfflineSession = (function () {
 var SAVE_KEY = 'tichu.solo';
 var NAMES = ['나', '레오', '미나', '준'];
 
-function create(handlers, resume) {
+function create(handlers, resume, botLevel) {
   var C = TichuCore, B = TichuBots;
+  botLevel = botLevel === 'easy' ? 'easy' : 'normal';
   var game = null;
   if (resume) {
     try {
@@ -48,11 +49,11 @@ function create(handlers, resume) {
       if (stopped) return;
       var s = w[0];
       var a = null;
-      if (game.phase === 'play' && game.turnSeat === s && !game.playedFirst[s] &&
+      if (botLevel !== 'easy' && game.phase === 'play' && game.turnSeat === s && !game.playedFirst[s] &&
           !game.tichu[s] && B.botTichu(game.hands[s])) {
         a = { type: 'call_tichu', seat: s };
       } else {
-        a = B.botDecide(game, s);
+        a = B.botDecide(game, s, botLevel);
       }
       if (a) {
         var r = game.apply(a);

@@ -23,6 +23,13 @@ var state = {
   tichuArmed: 0,         // 티츄 2탭 확인: 1차 탭 시각(ms)
   lobbyTarget: 1000,     // 로비에서 고른 목표 점수
   showHistory: false,    // 점수 히스토리 패널
+  chat: [],              // 채팅 메시지 (최근 80개)
+  unread: 0,
+  chatOpen: false,
+  chatDraft: '',         // 작성 중 초안 (재렌더에도 보존)
+  bubbles: {},           // seat → {text, until} 말풍선
+  roomList: [],          // 홈 화면 열린 방 목록
+  botLevel: 'normal',    // 봇 난이도 (easy|normal)
   conn: { s: '', mode: '' }
 };
 var tichuArmTimer = null;
@@ -71,6 +78,50 @@ var SUIT_COLOR = { S: '#23262e', H: '#cf3434', D: '#2a62c4', C: '#1c7e46' };
 var SUIT_COLOR_OFFICE = { S: '#222222', H: '#c00000', D: '#c00000', C: '#222222' };
 var SP_INFO = { MJ: ['1', '🐦', 'spMJ', '마작'], DG: ['', '🐶', 'spDG', '개'], PH: ['', '🔥', 'spPH', '불사조'], DR: ['', '🐉', 'spDR', '용'] };
 var SP_OFFICE = { MJ: '1', DG: 'DOG', PH: 'PHX', DR: 'DRG' };
+// 특수 카드 일러스트 (인라인 SVG — 외부 리소스 0 유지)
+var SP_SVG = {
+  // 마작: 참새
+  MJ: '<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">' +
+    '<path d="M10 26 Q3 28 1.5 33 Q8 33.5 12.5 29 Z" fill="#7a5e2a"/>' +
+    '<ellipse cx="18" cy="24" rx="10.5" ry="8.3" fill="#9c7b3c"/>' +
+    '<path d="M13 22 Q18.5 14.5 27 18.5 Q24 27 13 25.5 Z" fill="#c2a25e"/>' +
+    '<circle cx="26.5" cy="14" r="6" fill="#b08e49"/>' +
+    '<circle cx="28.8" cy="12.5" r="1.25" fill="#26200f"/>' +
+    '<path d="M32.2 13.2 L38 15 L32.2 16.6 Z" fill="#e2a93b"/>' +
+    '<path d="M21 31.5 l-1.4 4 M25.5 31.5 l-1.4 4" stroke="#6e5526" stroke-width="1.6" stroke-linecap="round" fill="none"/>' +
+    '</svg>',
+  // 개
+  DG: '<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">' +
+    '<path d="M10 9 Q4 5.5 4.5 14 Q5 19.5 11 18 Z" fill="#7c5a33"/>' +
+    '<path d="M30 9 Q36 5.5 35.5 14 Q35 19.5 29 18 Z" fill="#7c5a33"/>' +
+    '<circle cx="20" cy="21" r="11.2" fill="#c79a63"/>' +
+    '<ellipse cx="20" cy="26.2" rx="6.4" ry="5" fill="#ecdcc3"/>' +
+    '<circle cx="15.4" cy="17.6" r="1.7" fill="#2a1f14"/>' +
+    '<circle cx="24.6" cy="17.6" r="1.7" fill="#2a1f14"/>' +
+    '<ellipse cx="20" cy="24" rx="2.5" ry="1.9" fill="#3a2a1a"/>' +
+    '<path d="M20 25.8 Q20 28.8 16.6 29.3 M20 25.8 Q20 28.8 23.4 29.3" stroke="#3a2a1a" stroke-width="1.3" fill="none" stroke-linecap="round"/>' +
+    '</svg>',
+  // 불사조: 3겹 불꽃새
+  PH: '<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">' +
+    '<path d="M20 36.5 C7.5 30.5 8 17 15.5 8.5 C14.5 16 18.5 18 19.5 11.5 C20.5 16 23.5 17 23.5 10 C26 14.5 24.5 18 28 13.5 C34 20 32.5 30.5 20 36.5 Z" fill="#e2521f"/>' +
+    '<path d="M20 33.5 C12 28.8 13 20.5 17.2 15 C17.2 20 20.2 21 20.7 16 C22.4 20 24.4 20 24.9 17 C28.4 22 27 29 20 33.5 Z" fill="#f59b3e"/>' +
+    '<path d="M20 30.2 C16.2 27.4 16.7 22.5 19.2 19.5 C19.6 23.2 22 23.2 21.6 20.4 C23.9 23.2 23 28 20 30.2 Z" fill="#ffd34d"/>' +
+    '</svg>',
+  // 용: S커브 몸통 + 큰 머리·뿔2·콧등·눈
+  DR: '<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">' +
+    '<path d="M6 33.5 C10 25 23.5 28.5 26.5 19.5 C28 15 26 12.5 22.5 12.5" stroke="#1f7a4f" stroke-width="5.4" fill="none" stroke-linecap="round"/>' +
+    '<path d="M6.5 34 L2 36 L4 31.5 Z" fill="#15573a"/>' +
+    '<path d="M12.5 27.8 l2.1 -3.6 1.7 2.9 Z M18 27.2 l2.1 -3.6 1.7 2.9 Z M23.4 23.6 l2 -3.5 1.6 2.8 Z" fill="#15573a"/>' +
+    '<circle cx="17.5" cy="11.8" r="6.4" fill="#2e8b57"/>' +
+    '<ellipse cx="11.2" cy="13.6" rx="3.8" ry="2.7" fill="#3da06b"/>' +
+    '<circle cx="9.8" cy="12.8" r="0.8" fill="#15462e"/>' +
+    '<path d="M8.2 15.2 Q11.5 17 15 16.2" stroke="#15462e" stroke-width="1.2" fill="none" stroke-linecap="round"/>' +
+    '<circle cx="16.8" cy="9.8" r="2" fill="#fff"/>' +
+    '<circle cx="17.2" cy="10" r="1.05" fill="#1b130a"/>' +
+    '<path d="M20 5.8 Q21 1.8 24.5 1.5 Q23.8 5 21.8 6.8 Z" fill="#c9a227"/>' +
+    '<path d="M23 7.6 Q25.5 4.8 28.5 5.2 Q27 8.2 24.8 9.4 Z" fill="#c9a227"/>' +
+    '</svg>'
+};
 function cardHtml(id, cls, attrs) {
   cls = cls || '';
   attrs = attrs || '';
@@ -82,7 +133,7 @@ function cardHtml(id, cls, attrs) {
     var sp = SP_INFO[id];
     return '<div class="card sp ' + sp[2] + ' ' + cls + '" data-card="' + id + '" ' + attrs + '>' +
       '<span class="spBand">' + sp[3] + '</span>' +
-      '<span class="em">' + sp[1] + '</span>' +
+      '<span class="spArt">' + SP_SVG[id] + '</span>' +
       (id === 'MJ' ? '<span class="spRank">1</span>' : '') +
       '</div>';
   }
@@ -96,6 +147,13 @@ function cardHtml(id, cls, attrs) {
 }
 function comboLabel(combo) {
   if (!combo) return '';
+  // 특수 싱글 먼저 — 용/불사조는 "싱글 X"식 표기가 오해를 부름
+  if (combo.type === 'single' && typeof combo.rank === 'number') {
+    if (combo.rank >= 15) return '용';
+    if (combo.rank === 1.5) return '불사조'; // 턴 시작 리드 — 괄호 표기 불필요
+    if (combo.rank % 1 !== 0) return '불사조(' + C.rankLabel(Math.floor(combo.rank)) + '+0.5)';
+    if (combo.rank === 1) return '싱글 1';
+  }
   var t = { single: '싱글', pair: '페어', triple: '트리플', fullhouse: '풀하우스',
             straight: '스트레이트', pairseq: '연속페어', bomb4: '폭탄', bombstraight: '스트플 폭탄', dog: '개' }[combo.type] || combo.type;
   var r = combo.rank;
@@ -103,6 +161,18 @@ function comboLabel(combo) {
   if (combo.type === 'straight' || combo.type === 'bombstraight') rl = ' ' + combo.length + '장 (' + C.rankLabel(combo.rank) + '까지)';
   if (combo.type === 'dog') rl = '';
   return t + rl;
+}
+// "지금 깔린 조합을 이기려면" 안내 문구 — 용/불사조/폭탄은 일반 문구가 틀림
+function beatHint(cur) {
+  if (C.isBomb(cur.type)) return comboLabel(cur) + '이 깔림, 더 큰 폭탄만 가능';
+  if (cur.type === 'single' && typeof cur.rank === 'number') {
+    if (cur.rank >= 15) return '용은 폭탄으로만 이길 수 있어요';
+    if (cur.rank % 1 !== 0) {
+      if (cur.rank >= 14) return comboLabel(cur) + ', 용 또는 폭탄만 가능'; // A 위 불사조
+      return comboLabel(cur) + ', ' + C.rankLabel(Math.ceil(cur.rank)) + ' 이상 싱글로';
+    }
+  }
+  return comboLabel(cur) + '보다 높게';
 }
 
 // ---------- 선택 평가 ----------
@@ -119,8 +189,7 @@ function evalSelection() {
       if (C.isBomb(cur.type) || cur.type !== 'single' || cur.rank >= 15) return { legal: false, label: '불사조로 이길 수 없음' };
       combo = { type: 'single', rank: cur.rank + 0.5, length: 1 };
     } else combo = { type: 'single', rank: 1.5, length: 1 };
-    var lblP = '불사조 싱글';
-    if (myTurn()) return { legal: true, combo: combo, label: lblP };
+    if (myTurn()) return { legal: true, combo: combo, label: comboLabel(combo) + ' 싱글' };
     return { legal: false, label: '차례가 아닙니다' };
   }
   var label = comboLabel(combo);
@@ -167,13 +236,29 @@ var handlers = {
       if (cb) cb();
       else if (state.urlRoom && state.name) joinRoom(state.urlRoom);
       else { state.screen = 'home'; render(); }
+      requestRooms();
     }
   },
   onAck: function (m) {
+    if (m.rooms) { // list_rooms 응답
+      state.roomList = m.rooms;
+      if (state.screen === 'home') render();
+      return;
+    }
     if (!m.ok && m.error && m.error.code !== 'STALE_VERSION') {
       toast(m.error.message || m.error.code);
       render();
     }
+  },
+  onChat: function (m) {
+    state.chat.push({ seat: m.seat, name: m.name, text: m.text, ts: Date.now() });
+    if (state.chat.length > 80) state.chat.shift();
+    if (!state.chatOpen) state.unread = Math.min(99, state.unread + 1);
+    if (m.seat !== mySeat()) {
+      state.bubbles[m.seat] = { text: m.text, until: Date.now() + 4500 };
+      setTimeout(function () { render(); }, 4600); // 말풍선 자동 소멸
+    }
+    render();
   },
   onReplaced: function () { state.replaced = true; render(); },
   onLeft: function (reason) {
@@ -190,6 +275,10 @@ function destroySession() {
   if (state.session) { state.session.destroy(); state.session = null; }
   state.welcomed = false;
   state.snap = null;
+  state.chat = [];
+  state.unread = 0;
+  state.chatOpen = false;
+  state.bubbles = {};
 }
 function ensureOnline(cb) {
   saveName();
@@ -207,8 +296,11 @@ function ensureOnline(cb) {
 function startSolo(resume) {
   destroySession();
   if (!resume) OfflineSession.clearSave();
-  state.session = OfflineSession.create(handlers, resume);
+  state.session = OfflineSession.create(handlers, resume, state.botLevel);
   state.conn = { s: '', mode: 'offline' };
+}
+function requestRooms() {
+  if (state.screen === 'home' && isOnline() && state.welcomed) send({ type: 'list_rooms' });
 }
 function joinRoom(code) {
   ensureOnline(function () {
@@ -235,6 +327,22 @@ function reconcile() {
 // ---------- 렌더 ----------
 var lastMyTurn = false;
 function render() {
+  // 내 차례가 막 됐는데 채팅이 가리고 있으면(입력 중이 아닐 때) 자동으로 닫기
+  var mt = myTurn();
+  if (mt && !lastMyTurn && state.chatOpen && !(state.chatDraft && state.chatDraft.trim())) {
+    state.chatOpen = false;
+  }
+  // 채팅 입력 중 재렌더돼도 입력값·포커스 유지
+  var keep = null;
+  var ae = document.activeElement;
+  if (ae && ae.id === 'chatIn') keep = { v: ae.value, s: ae.selectionStart };
+  // 채팅 스크롤: 바닥 근처일 때만 바닥 고정 (옛 메시지 읽는 중엔 위치 유지)
+  var stickChat = true, prevChatTop = 0;
+  var oldList = $('#chatList');
+  if (oldList) {
+    stickChat = oldList.scrollHeight - oldList.scrollTop - oldList.clientHeight < 40;
+    prevChatTop = oldList.scrollTop;
+  }
   document.body.classList.toggle('office', !!state.office);
   applyDisguise();
   var inner = state.screen === 'home' ? renderHome() : renderGame();
@@ -242,8 +350,13 @@ function render() {
   appEl.innerHTML = inner;
   renderConn();
   fitHand();
-  // 내 차례로 막 전환되면 살짝 진동 (모바일)
-  var mt = myTurn();
+  if (keep) {
+    var ci = $('#chatIn');
+    if (ci) { ci.value = keep.v; ci.focus(); try { ci.setSelectionRange(keep.s, keep.s); } catch (e) {} }
+  }
+  var cl = $('#chatList');
+  if (cl) cl.scrollTop = stickChat ? cl.scrollHeight : prevChatTop;
+  // 내 차례로 막 전환되면 살짝 진동 (모바일 — iOS는 미지원이라 채팅 자동닫기가 주 신호)
   if (mt && !lastMyTurn && navigator.vibrate) { try { navigator.vibrate(30); } catch (e) {} }
   lastMyTurn = mt;
 }
@@ -307,24 +420,88 @@ function renderHome() {
     '<div class="sub">' + STR.subtitle + '</div>' +
     '<input id="nick" maxlength="12" placeholder="' + STR.nickname + '" value="' + esc(state.name) + '">' +
     '<button class="btn primary" data-act="create">' + STR.createRoom + '</button>' +
+    roomListHtml() +
     '<div class="codeRow">' +
       '<input id="code" maxlength="4" placeholder="' + STR.roomCode + '" value="' + esc(state.urlRoom) + '" autocapitalize="characters">' +
       '<button class="btn" data-act="join">' + STR.joinRoom + '</button>' +
     '</div>' +
     '<button class="btn ghost" data-act="solo">' + STR.solo + '</button>' +
     (canResume ? '<button class="btn ghost" data-act="solo-resume">' + STR.soloResume + '</button>' : '') +
+    botLevelPicker() +
     '<div class="row"><button class="btn ghost grow" data-act="help-open">' + STR.rulesBtn + '</button>' +
     '<button class="btn ghost grow" data-act="office-toggle">' + (state.office ? '위장 끄기' : '▦ 위장') + '</button></div>' +
     '<div class="connStatus"><span id="connTxt"></span></div>' +
   '</div>' + (state.help ? helpModal() : '');
 }
 
+// 열린 방 목록 (온라인일 때만)
+function roomListHtml() {
+  if (!isOnline() || !state.welcomed) return '';
+  var L = state.roomList || [];
+  var open = L.filter(function (r) { return !r.inGame && r.occupied < 4; });
+  var playing = L.length - open.length;
+  var rows = open.map(function (r) {
+    return '<button class="roomRow" data-act="join-room" data-code="' + esc(r.code) + '">' +
+      '<b>' + esc(r.host) + '</b>의 방' +
+      '<span class="chip dim">' + r.occupied + '/4</span>' +
+      '<span class="grow"></span><span class="chip gold">' + esc(r.code) + '</span></button>';
+  }).join('');
+  return '<div class="roomList"><div class="rlHead">' + STR.roomListTitle +
+    (playing ? ' <span class="chip dim">' + STR.inGameCount + ' ' + playing + '</span>' : '') + '</div>' +
+    (rows || '<div class="rlEmpty">' + STR.roomListEmpty + '</div>') + '</div>';
+}
+function botLevelPicker() {
+  return '<div class="targetRow"><span class="targetLbl">' + STR.botLevelLbl + '</span>' +
+    [['easy', STR.botEasy], ['normal', STR.botNormal]].map(function (o) {
+      return '<button class="btn small ' + (state.botLevel === o[0] ? 'primary' : 'ghost') +
+        '" data-act="botlevel" data-l="' + o[0] + '">' + o[1] + '</button>';
+    }).join('') + '</div>';
+}
+
 function renderGame() {
   var snap = state.snap;
   if (!snap) return renderHome();
   var html = snap.phase === 'lobby' ? renderLobby() : renderTable();
+  if (state.chatOpen && isOnline()) html += chatPanel();
   html += renderModal();
   return html;
+}
+function isOnline() { return !!(state.session && state.session.mode === 'online'); }
+function chatBtnHtml() {
+  if (!isOnline()) return '';
+  return '<button class="btn small ghost chatBtn" data-act="chat-open">' + (state.office ? '메모' : '💬') +
+    (state.unread ? '<span class="unbadge">' + state.unread + '</span>' : '') + '</button>';
+}
+function chatPanel() {
+  var rows = state.chat.map(function (m) {
+    var mine = m.seat === mySeat();
+    return '<div class="chatRow' + (mine ? ' mine' : '') + '"><b>' + esc(mine ? STR.you : m.name) + '</b>' + esc(m.text) + '</div>';
+  }).join('');
+  var presets = ['굿굿', 'ㅋㅋㅋ', '나이스~', '잠시만요!', '미안ㅠ', '빨리요!'].map(function (p) {
+    return '<button class="btn small ghost" data-act="chat-preset" data-t="' + esc(p) + '">' + esc(p) + '</button>';
+  }).join('');
+  return '<div class="chatPanel">' +
+    '<div class="row chatHead"><b>' + (state.office ? '메모' : STR.chat) + '</b>' +
+    (myTurn() ? '<span class="chip gold" style="margin-left:8px">▶ 내 차례!</span>' : '') +
+    '<span class="grow"></span>' +
+    '<button class="btn small ghost" data-act="chat-close">✕</button></div>' +
+    '<div class="chatList" id="chatList">' + (rows || '<div class="chatEmpty">' + STR.chatEmpty + '</div>') + '</div>' +
+    '<div class="row chatPresets">' + presets + '</div>' +
+    '<div class="row chatInRow"><input id="chatIn" maxlength="200" placeholder="' + STR.chatPlaceholder + '" autocomplete="off" value="' + esc(state.chatDraft || '') + '">' +
+    '<button class="btn primary" data-act="chat-send">' + STR.chatSend + '</button></div>' +
+    '</div>';
+}
+var lastChatSendAt = 0;
+function sendChat(text) {
+  text = String(text || '').trim();
+  if (!text) return;
+  // 서버 레이트리밋(0.6초)에 걸려 입력이 증발하지 않게 클라에서 선차단
+  if (Date.now() - lastChatSendAt < 700) { toast('천천히 보내주세요'); return; }
+  lastChatSendAt = Date.now();
+  send({ type: 'chat', text: text });
+  state.chatDraft = '';
+  var el = $('#chatIn');
+  if (el) el.value = '';
 }
 
 function renderLobby() {
@@ -354,6 +531,7 @@ function renderLobby() {
   return '<div class="lobby">' +
     '<div class="row"><span class="connDot" id="connDot"></span><span id="connTxt" style="font-size:12px;opacity:.7"></span>' +
     '<span class="grow"></span>' +
+    chatBtnHtml() +
     '<button class="btn small ghost" data-act="office-toggle" title="위장 모드">▦</button>' +
     '<button class="btn small ghost" data-act="leave">' + STR.leave + '</button></div>' +
     '<div class="codeBig">' + esc(snap.code || '') + '</div>' +
@@ -361,7 +539,7 @@ function renderLobby() {
     '<div class="seatGrid">' + seats + '</div>' +
     '<div class="lobbyHint">' + STR.teamHint + '</div>' +
     (isHost()
-      ? targetPicker() + '<button class="btn primary" data-act="start">' + STR.start + ' (빈자리는 봇)</button>'
+      ? targetPicker() + botLevelPicker() + '<button class="btn primary" data-act="start">' + STR.start + ' (빈자리는 봇)</button>'
       : '<div class="lobbyHint">' + STR.waitingHost + '</div>') +
   '</div>';
 }
@@ -382,6 +560,7 @@ function renderTable() {
     '<span class="grow"></span>' +
     '<span id="connTxt" style="font-size:11px;opacity:.6"></span>' +
     (snap.code ? '<span class="chip dim">' + esc(snap.code) + '</span>' : '') +
+    chatBtnHtml() +
     '<button class="btn small ghost" data-act="office-toggle" title="위장 모드">▦</button>' +
     '<button class="btn small ghost" data-act="help-open">?</button>' +
     '<button class="btn small ghost" data-act="leave">' + STR.leave + '</button>' +
@@ -407,11 +586,13 @@ function renderTable() {
     // 게임 중 끊긴 사람을 방장이 봇으로 교체 (서버 kick_player가 봇 전환)
     if (offline && isHost()) timerTxt += '<button class="btn small ghost" data-act="kick-seat" data-seat="' + s + '" style="margin-top:4px">' + STR.toBot + '</button>';
     var partnerMark = rel === 2 ? (state.office ? '' : ' ♥') : '';
+    var bub = state.bubbles[s];
+    var bubbleHtml = (bub && bub.until > Date.now()) ? '<div class="bubble">' + esc(bub.text.slice(0, 60)) + '</div>' : '';
     html += '<div class="' + cls + '">' +
       '<div class="badges">' + badges + '</div>' +
       '<div class="nm">' + esc(rs.name) + partnerMark + '</div>' +
       '<div class="cnt">' + si.handCount + '장 · ' + si.trickPoints + STR.pilePts + '</div>' +
-      '<div class="minis">' + minis + '</div>' + timerTxt +
+      '<div class="minis">' + minis + '</div>' + timerTxt + bubbleHtml +
     '</div>';
   });
   html += '</div>';
@@ -440,13 +621,13 @@ function renderTable() {
         p.cards.map(function (id) { return cardHtml(id, 'sm'); }).join('') + who + '</div>';
     }).join('');
   } else if (g.phase === 'play') {
-    html += '<span style="opacity:.45;font-size:13px">새 트릭 — ' + esc(seatName(g.turnSeat)) + ' 선</span>';
+    html += '<span style="opacity:.45;font-size:13px">새 턴 — ' + esc(seatName(g.turnSeat)) + '부터</span>';
   }
   html += '</div>';
 
   html += '<div class="lastLine">' + lastActionLine() + '</div>';
   if (myTurn()) {
-    html += '<div class="turnBanner">▶ ' + STR.yourTurn + (g.currentCombo ? ' — ' + comboLabel(g.currentCombo) + '보다 높게' : ' — ' + STR.leadFree) + '</div>';
+    html += '<div class="turnBanner">▶ ' + STR.yourTurn + ' — ' + (g.currentCombo ? beatHint(g.currentCombo) : STR.leadFree) + '</div>';
   }
   html += '</div>';
 
@@ -465,13 +646,13 @@ function lastActionLine() {
     case 'play': return nm + ': ' + (la.combo ? comboLabel(la.combo) : '');
     case 'bomb': return em('💥 ') + nm + ': ' + comboLabel(la.combo || { type: 'bomb4' });
     case 'pass': return nm + ' ' + STR.passChip;
-    case 'tichu': return em('🔴 ') + nm + ' 티츄 선언!';
-    case 'grand': return em('🔴 ') + nm + ' 그랜드 티츄 선언!';
+    case 'tichu': return em('🔴 ') + nm + ' 스몰 티츄 선언!';
+    case 'grand': return em('🔴 ') + nm + ' 라지 티츄 선언!';
     case 'grand_pass': return '';
-    case 'dog': return em('🐶 ') + nm + ' 개 — 파트너에게 선';
-    case 'trick_won': return nm + ' 트릭 획득' + (la.dragon ? ' (용 — 증정 대기)' : '');
-    case 'dragon_give': return em('🐉 ') + nm + ' → ' + esc(seatName(la.toSeat)) + ' 트릭 증정';
-    case 'exchange_done': return '교환 완료 — ' + esc(seatName(la.leader)) + ' 선 (마작)';
+    case 'dog': return em('🐶 ') + nm + ' 개 — 파트너 턴으로';
+    case 'trick_won': return nm + ' 카드 가져감' + (la.dragon ? ' (용 — 증정 대기)' : '');
+    case 'dragon_give': return em('🐉 ') + nm + ' → ' + esc(seatName(la.toSeat)) + ' 카드 증정';
+    case 'exchange_done': return '교환 완료 — ' + esc(seatName(la.leader)) + ' 턴부터 (1 보유)';
     case 'round_end': return '';
     default: return '';
   }
@@ -625,7 +806,7 @@ function summaryModal(g) {
     html += '<tr><td>' + STR.cardPts + '</td><td>' + cp[0] + '</td><td>' + cp[1] + '</td></tr>';
   }
   sum.bonuses.forEach(function (b) {
-    var lbl = (b.call === 'grand' ? '그랜드 티츄' : '티츄') + ' — ' + esc(seatName(b.seat));
+    var lbl = (b.call === 'grand' ? '라지 티츄' : '스몰 티츄') + ' — ' + esc(seatName(b.seat));
     html += '<tr><td>' + lbl + ' ' + (b.made ? '성공' : '실패') + '</td><td colspan="2">' + (b.delta > 0 ? '+' : '') + b.delta + '</td></tr>';
   });
   var d = pair(sum.deltas), t = pair(sum.totals);
@@ -668,20 +849,20 @@ function helpModal() {
     '<h2>티츄 간단 규칙</h2>' +
     '<div style="font-size:13px;line-height:1.7;opacity:.9">' +
     '<b>게임 흐름</b><br>' +
-    '① 처음 8장을 보고 그랜드 티츄 여부 결정(보통 「선언 안 함」).<br>' +
+    '① 처음 8장을 보고 라지 티츄 여부 결정(보통 「선언 안 함」).<br>' +
     '② 나머지 6장을 받고, 양옆·파트너에게 1장씩 <b>교환</b>(파트너에겐 좋은 카드, 상대에겐 낮은 카드).<br>' +
-    '③ 돌아가며 카드를 냄. <b>이전 사람보다 높게</b> 내거나 <b>패스</b>. 나머지 3명이 모두 패스하면 마지막에 낸 사람이 그 트릭을 먹고 다음 선이 됨.<br>' +
+    '③ 돌아가며 카드를 냄. <b>이전 사람보다 높게</b> 내거나 <b>패스</b>. 나머지 3명이 모두 패스하면 마지막에 낸 사람이 깔린 카드를 전부 가져가고 새 턴을 시작.<br>' +
     '④ 손패를 먼저 비우는 순서대로 1~4등. 같은 팀이 1·2등이면 즉시 라운드 종료(원투).<br><br>' +
     '<b>규칙 상세</b><br>' +
     '· 2:2 팀전. 마주 보는 자리가 한 팀, 1000점(또는 방장이 정한 점수) 선취.<br>' +
     '· 조합: 싱글/페어/트리플/풀하우스/스트레이트(5+)/연속페어. 같은 형태·장수만 더 높게 낼 수 있음.<br>' +
     '· 폭탄: 같은 숫자 4장, 같은 무늬 연속 5장+. 무엇이든 이기고 차례 없이 끼어들기 가능.<br>' +
-    '· <b>마작(1)</b>: 가장 낮은 카드, 보유자가 첫 선. 내면서 소원 숫자 선언 → 다른 사람은 낼 수 있으면 반드시 그 숫자를 내야 함.<br>' +
-    '· <b>개</b>: 선일 때만. 파트너에게 선을 넘김.<br>' +
+    '· <b>1(참새)</b>: 가장 낮은 카드, 가진 사람이 첫 턴 시작. 내면서 소원 숫자 선언 → 다른 사람은 낼 수 있으면 반드시 그 숫자를 내야 함.<br>' +
+    '· <b>개</b>: 턴을 시작할 때만. 파트너에게 턴을 넘김.<br>' +
     '· <b>불사조</b>: 어떤 카드든 대신(폭탄 제외). 싱글로는 직전 카드+0.5 (용은 못 이김). -25점.<br>' +
-    '· <b>용</b>: 가장 높은 싱글, +25점. 용으로 먹은 트릭은 상대팀에게 줘야 함.<br>' +
-    '· 점수 카드: 5(5점), 10·K(10점). 막내의 트릭은 1등에게, 손패는 상대팀에게.<br>' +
-    '· <b>티츄</b>(첫 카드 전 선언, ±100) / <b>그랜드 티츄</b>(8장 보고, ±200): 선언자가 1등 완주해야 성공.<br>' +
+    '· <b>용</b>: 가장 높은 싱글, +25점. 용으로 가져온 카드는 상대팀에게 줘야 함.<br>' +
+    '· 점수 카드: 5(5점), 10·K(10점). 꼴찌가 가져온 카드는 1등에게, 남은 손패는 상대팀에게.<br>' +
+    '· <b>스몰 티츄</b>(첫 카드 전 선언, ±100) / <b>라지 티츄</b>(8장 보고, ±200): 선언자가 1등 완주해야 성공.<br>' +
     '· <b>원투</b>: 한 팀이 1·2등 완주 시 +200 (카드점수 무시).' +
     '</div>' +
     '<div class="row"><button class="btn grow" data-act="help-close">닫기</button></div>' +
@@ -753,8 +934,14 @@ function onClick(e) {
     case 'bot-add': send({ type: 'add_bot', seat: seat }); break;
     case 'bot-del': send({ type: 'remove_bot', seat: seat }); break;
     case 'kick': send({ type: 'kick_player', seat: seat }); break;
-    case 'start': send({ type: 'start_game', targetScore: state.lobbyTarget }); break;
+    case 'start': send({ type: 'start_game', targetScore: state.lobbyTarget, botLevel: state.botLevel }); break;
     case 'target': state.lobbyTarget = +el.getAttribute('data-n'); render(); break;
+    case 'botlevel':
+      state.botLevel = el.getAttribute('data-l') === 'easy' ? 'easy' : 'normal';
+      try { localStorage.setItem('tichu.botlevel', state.botLevel); } catch (e3) {}
+      render();
+      break;
+    case 'join-room': joinRoom(el.getAttribute('data-code')); break;
     case 'copy': {
       var url = location.origin + location.pathname + '?room=' + (state.snap ? state.snap.code : '');
       (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject()).then(
@@ -835,6 +1022,10 @@ function onClick(e) {
     case 'help-close': state.help = false; state.helpFromModal = false; render(); break;
     case 'wish-cancel': state.wishCards = null; render(); break;
     case 'history-toggle': state.showHistory = !state.showHistory; render(); break;
+    case 'chat-open': state.chatOpen = !state.chatOpen; if (state.chatOpen) state.unread = 0; render(); break;
+    case 'chat-close': state.chatOpen = false; render(); break;
+    case 'chat-send': sendChat(($('#chatIn') || {}).value); break;
+    case 'chat-preset': sendChat(el.getAttribute('data-t')); break;
     case 'kick-seat': send({ type: 'kick_player', seat: seat }); break;
     case 'office-toggle':
       state.office = !state.office;
@@ -849,21 +1040,32 @@ function init() {
   appEl = $('#app');
   toastEl = $('#toast');
   appEl.addEventListener('click', onClick);
+  appEl.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && e.target && e.target.id === 'chatIn') {
+      if (e.isComposing || e.keyCode === 229) return; // 한글 IME 조합 중 Enter 무시
+      e.preventDefault();
+      sendChat(e.target.value);
+    }
+  });
+  appEl.addEventListener('input', function (e) {
+    if (e.target && e.target.id === 'chatIn') state.chatDraft = e.target.value; // 초안 보존
+  });
   state.name = '';
   try { state.name = localStorage.getItem('tichu.name') || ''; } catch (e) {}
   try { state.office = localStorage.getItem('tichu.office') === '1'; } catch (e) {}
+  try { state.botLevel = localStorage.getItem('tichu.botlevel') === 'easy' ? 'easy' : 'normal'; } catch (e) {}
   state.urlRoom = (new URLSearchParams(location.search).get('room') || '').toUpperCase().slice(0, 4);
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js').catch(function () {});
   }
   window.addEventListener('resize', fitHand);
-  // 저장된 온라인 세션 자동 복귀
-  var hasToken = false;
-  try { hasToken = !!localStorage.getItem('tichu.token'); } catch (e) {}
-  if (hasToken && navigator.onLine !== false) {
+  // 항상 접속 시도 — 방 목록 표시 + 진행 중 게임 자동 복귀 (오프라인이면 조용히 실패)
+  if (navigator.onLine !== false) {
     state.session = OnlineSession.create(handlers);
     state.session.connect(state.name);
   }
+  // 홈 화면 방 목록 주기 갱신
+  setInterval(requestRooms, 6000);
   render();
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
