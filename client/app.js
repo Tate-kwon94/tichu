@@ -264,10 +264,17 @@ var handlers = {
   onLeft: function (reason) {
     state.screen = 'home';
     state.snap = null;
+    state.chat = []; state.unread = 0; state.chatOpen = false; state.bubbles = {};
     toast(reason === 'kicked' ? STR.kicked : STR.roomClosed);
     render();
+    requestRooms();
   },
-  onStatus: function (s, mode) { state.conn = { s: s, mode: mode }; renderConn(); },
+  onStatus: function (s, mode) {
+    state.conn = { s: s, mode: mode };
+    renderConn();
+    // 홈에서 연결 안내 문구("연결 중…")가 갱신되도록
+    if (state.screen === 'home' && !state.welcomed) render();
+  },
   onStale: function () { toast(STR.refreshNew); }
 };
 
@@ -332,10 +339,12 @@ function render() {
   if (mt && !lastMyTurn && state.chatOpen && !(state.chatDraft && state.chatDraft.trim())) {
     state.chatOpen = false;
   }
-  // 채팅 입력 중 재렌더돼도 입력값·포커스 유지
+  // 입력 중 재렌더돼도 입력값·포커스 유지 (채팅/닉네임/방코드)
   var keep = null;
   var ae = document.activeElement;
-  if (ae && ae.id === 'chatIn') keep = { v: ae.value, s: ae.selectionStart };
+  if (ae && (ae.id === 'chatIn' || ae.id === 'nick' || ae.id === 'code')) {
+    keep = { id: ae.id, v: ae.value, s: ae.selectionStart };
+  }
   // 채팅 스크롤: 바닥 근처일 때만 바닥 고정 (옛 메시지 읽는 중엔 위치 유지)
   var stickChat = true, prevChatTop = 0;
   var oldList = $('#chatList');
@@ -351,8 +360,8 @@ function render() {
   renderConn();
   fitHand();
   if (keep) {
-    var ci = $('#chatIn');
-    if (ci) { ci.value = keep.v; ci.focus(); try { ci.setSelectionRange(keep.s, keep.s); } catch (e) {} }
+    var ki = document.getElementById(keep.id);
+    if (ki) { ki.value = keep.v; ki.focus(); try { ki.setSelectionRange(keep.s, keep.s); } catch (e) {} }
   }
   var cl = $('#chatList');
   if (cl) cl.scrollTop = stickChat ? cl.scrollHeight : prevChatTop;
@@ -419,8 +428,8 @@ function renderHome() {
     '<h1>' + STR.appName + '</h1>' +
     '<div class="sub">' + STR.subtitle + '</div>' +
     '<input id="nick" maxlength="12" placeholder="' + STR.nickname + '" value="' + esc(state.name) + '">' +
-    '<button class="btn primary" data-act="create">' + STR.createRoom + '</button>' +
     roomListHtml() +
+    '<button class="btn primary" data-act="create">' + STR.createRoom + '</button>' +
     '<div class="codeRow">' +
       '<input id="code" maxlength="4" placeholder="' + STR.roomCode + '" value="' + esc(state.urlRoom) + '" autocapitalize="characters">' +
       '<button class="btn" data-act="join">' + STR.joinRoom + '</button>' +
@@ -434,21 +443,33 @@ function renderHome() {
   '</div>' + (state.help ? helpModal() : '');
 }
 
-// 열린 방 목록 (온라인일 때만)
+// 열린 방 목록 — 홈의 중심. 연결 중에도 영역을 보여주고, 게임중 방도 표시(비활성)
 function roomListHtml() {
-  if (!isOnline() || !state.welcomed) return '';
-  var L = state.roomList || [];
-  var open = L.filter(function (r) { return !r.inGame && r.occupied < 4; });
-  var playing = L.length - open.length;
-  var rows = open.map(function (r) {
-    return '<button class="roomRow" data-act="join-room" data-code="' + esc(r.code) + '">' +
-      '<b>' + esc(r.host) + '</b>의 방' +
-      '<span class="chip dim">' + r.occupied + '/4</span>' +
-      '<span class="grow"></span><span class="chip gold">' + esc(r.code) + '</span></button>';
-  }).join('');
+  if (!(state.session && state.session.mode === 'online')) return '';
+  var inner;
+  if (!state.welcomed) {
+    inner = '<div class="rlEmpty">' + (state.conn.s === 'offline'
+      ? '서버에 연결할 수 없습니다 — 잠시 후 자동 재시도'
+      : '서버 연결 중… (서버가 자고 있으면 30초쯤 걸려요)') + '</div>';
+  } else {
+    var L = state.roomList || [];
+    var open = L.filter(function (r) { return !r.inGame && r.occupied < 4; });
+    var busy = L.filter(function (r) { return r.inGame || r.occupied >= 4; });
+    var rows = open.map(function (r) {
+      return '<button class="roomRow" data-act="join-room" data-code="' + esc(r.code) + '">' +
+        '<b>' + esc(r.host) + '</b>의 방' +
+        '<span class="chip dim">' + r.occupied + '/4</span>' +
+        '<span class="grow"></span><span class="chip gold">입장 ›</span></button>';
+    }).join('') + busy.map(function (r) {
+      return '<div class="roomRow rrBusy"><b>' + esc(r.host) + '</b>의 방' +
+        '<span class="chip dim">' + (r.inGame ? STR.inGameCount : '4/4') + '</span>' +
+        '<span class="grow"></span><span class="chip dim">' + esc(r.code) + '</span></div>';
+    }).join('');
+    inner = rows || '<div class="rlEmpty">' + STR.roomListEmpty + '</div>';
+  }
   return '<div class="roomList"><div class="rlHead">' + STR.roomListTitle +
-    (playing ? ' <span class="chip dim">' + STR.inGameCount + ' ' + playing + '</span>' : '') + '</div>' +
-    (rows || '<div class="rlEmpty">' + STR.roomListEmpty + '</div>') + '</div>';
+    '<span class="grow"></span><button class="btn small ghost" data-act="rooms-refresh">↻</button></div>' +
+    inner + '</div>';
 }
 function botLevelPicker() {
   return '<div class="targetRow"><span class="targetLbl">' + STR.botLevelLbl + '</span>' +
@@ -942,6 +963,7 @@ function onClick(e) {
       render();
       break;
     case 'join-room': joinRoom(el.getAttribute('data-code')); break;
+    case 'rooms-refresh': requestRooms(); break;
     case 'copy': {
       var url = location.origin + location.pathname + '?room=' + (state.snap ? state.snap.code : '');
       (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject()).then(
@@ -954,11 +976,20 @@ function onClick(e) {
       var g0 = game();
       var inGame = g0 && g0.phase !== 'lobby' && g0.phase !== 'gameEnd';
       if (inGame && typeof confirm === 'function' && !confirm(STR.leaveConfirm)) break;
-      if (state.session && state.session.mode === 'online') send({ type: 'leave_room' });
-      destroySession();
-      state.screen = 'home';
-      state.conn = { s: '', mode: '' };
-      render();
+      if (state.session && state.session.mode === 'online') {
+        // 연결은 유지한 채 방만 나가기 — 홈의 방 목록이 계속 동작해야 함
+        send({ type: 'leave_room' });
+        state.snap = null;
+        state.screen = 'home';
+        state.chat = []; state.unread = 0; state.chatOpen = false; state.chatDraft = ''; state.bubbles = {};
+        render();
+        requestRooms();
+      } else {
+        destroySession();
+        state.screen = 'home';
+        state.conn = { s: '', mode: '' };
+        render();
+      }
       break;
     }
     case 'grand-yes': send({ type: 'call_grand', call: true }); break;
@@ -1065,7 +1096,7 @@ function init() {
     state.session.connect(state.name);
   }
   // 홈 화면 방 목록 주기 갱신
-  setInterval(requestRooms, 6000);
+  setInterval(requestRooms, 4000);
   render();
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

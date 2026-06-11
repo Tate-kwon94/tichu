@@ -3,7 +3,7 @@ var STR = {
   appName: '티츄',
   subtitle: '4인 파트너 카드게임',
   nickname: '닉네임',
-  createRoom: '방 만들기',
+  createRoom: '+ 새 방 만들기',
   joinRoom: '방 참여',
   roomCode: '방 코드',
   solo: '혼자 연습 (봇 3명)',
