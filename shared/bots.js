@@ -51,11 +51,34 @@ function hasBomb(hand) {
   return false;
 }
 // 그랜드는 8장만 보고 ±200 — 매우 강한 손에만 (과다 선언이 성공률을 떨어뜨림)
-function botGrand(hand8) {
-  var s = strength(hand8), aces = countRank(hand8, 14), dragon = hand8.indexOf('DR') >= 0;
-  return s >= 8 || (dragon && aces >= 2) || (s >= 7 && hasBomb(hand8));
+// 티츄 가치 점수 — 1등 완주 가능성과 상관되게 측정 기반으로 가중
+function tichuScore(hand) {
+  var s = 0, aces = 0;
+  if (hasBomb(hand)) s += 4;
+  for (var i = 0; i < hand.length; i++) {
+    var id = hand[i];
+    if (id === 'DR') s += 1.6;
+    else if (id === 'PH') s += 1.2;
+    else if (!isSpecial(id)) {
+      var r = rankOf(id);
+      if (r === 14) { s += 2; aces++; }
+      else if (r === 13) s += 1;
+      else if (r === 12) s += 0.4;
+      else if (r <= 6) s -= 0.25; // 저카드 부채
+    }
+  }
+  if (aces >= 2) s += 1;
+  return s;
 }
-function botTichu(hand14) { return strength(hand14) + (hasBomb(hand14) ? 4 : 0) >= 10; }
+function thresh(name, def) {
+  try {
+    var t = (typeof globalThis !== 'undefined') && globalThis.__TICHU_TH;
+    return (t && t[name] != null) ? t[name] : def;
+  } catch (e) { return def; }
+}
+// 라지(±200): 8장만 보고 매우 강할 때만. 스몰(±100): 적극적으로(성공률 ~61% 지점).
+function botGrand(hand8) { return tichuScore(hand8) >= thresh('grand', 9.5); }
+function botTichu(hand14) { return tichuScore(hand14) >= thresh('tichu', 8); }
 
 // ---------- 교환 ----------
 // 상대(좌/우)에게 최저 카드 + 마작/개 떠넘기기, 파트너에게 가장 강한 카드(용/불사조는 보유)
@@ -128,30 +151,57 @@ function cheapest(moves, penalizeSpecials, protect) {
   return best;
 }
 // 반환: {cards} (낼 수) | null (패스)
+function lowestLead(moves, protect) {
+  var best = null, bv = Infinity;
+  for (var i = 0; i < moves.length; i++) {
+    var v = leadValue(moves[i], protect);
+    if (v < bv) { bv = v; best = moves[i]; }
+  }
+  return best;
+}
 function botPlay(game, seat) {
   var hand = game.hands[seat];
+  var n = hand.length;
   var cur = game.currentCombo;
   var g = genMoves(hand, cur, game.wish);
   var moves = g.moves;
   if (!moves.length) return null;
   var protect = bombCards(hand); // 폭탄 구성 카드 — 함부로 분해하지 않음
-  var finishers = moves.filter(function (m) { return m.cards.length === hand.length; });
+  var partner = partnerOf(seat);
+  // 파트너가 티츄를 불렀고 아직 아무도 완주 안 함 → 절대 1등으로 나가면 안 됨(파트너 티츄 보호)
+  var protectPartner = game.tichu[partner] > 0 && game.firstOutSeat === null;
+  var partnerOutFirst = game.firstOutSeat === partner;
+  var iTichu = game.tichu[seat] > 0 && game.finished.indexOf(seat) < 0;
+
+  // ---- 파트너 티츄 보호: 손을 비우거나 1장만 남기는 수만 금지(정상 플레이는 유지) ----
+  if (protectPartner) {
+    var safe = moves.filter(function (m) { return (n - m.cards.length) >= 2; });
+    if (!cur) {
+      var leadPool = safe.length ? safe : moves.filter(function (m) { return m.cards.length < n; });
+      return lowestLead(leadPool.length ? leadPool : moves, protect);
+    }
+    if (!safe.length) return g.forced ? cheapest(moves, false, protect) : null;
+    // 카드가 적으면(≤4) 트릭을 따지 않고 패스 — 선이 되어 1장으로 강제 완주되는 덫을 피함
+    if (n <= 4) return g.forced ? cheapest(safe, false, protect) : null;
+    moves = safe; // 그 외엔 정상 따라가기를 "안전한 수"에서만 수행 (싼 트릭은 능동적으로 따냄)
+  }
+
+  var finishers = moves.filter(function (m) { return m.cards.length === n; });
+  // ---- 내가 티츄를 불렀으면 1등 완주를 최우선 ----
+  if (iTichu && finishers.length && game.firstOutSeat === null) return finishers[0];
+  // ---- 파트너가 1등 완주 → 즉시 2등 완주로 원투(+200) 추구 ----
+  if (partnerOutFirst && finishers.length) return finishers[0];
 
   if (!cur) { // 리드
     if (finishers.length) return finishers[0];
-    var best = null, bv = Infinity;
-    for (var i = 0; i < moves.length; i++) {
-      var v = leadValue(moves[i], protect);
-      if (v < bv) { bv = v; best = moves[i]; }
-    }
-    return best;
+    return lowestLead(moves, protect);
   }
   if (g.forced) return cheapest(moves, false, protect); // 소원 의무는 최저로 이행
 
-  var partnerWinning = game.lastPlayerSeat === partnerOf(seat);
+  var partnerWinning = game.lastPlayerSeat === partner;
   if (finishers.length && !partnerWinning) return finishers[0];
   if (partnerWinning) {
-    if (finishers.length && hand.length <= 4) return finishers[0];
+    if (finishers.length && n <= 4) return finishers[0];
     if (cur.rank >= 10 || isBomb(cur.type)) return null; // 파트너가 세게 이기는 중 — 양보
   }
   var nonBomb = moves.filter(function (m) { return !isBomb(m.combo.type); });
@@ -159,13 +209,13 @@ function botPlay(game, seat) {
   if (nonBomb.length) {
     var pick = cheapest(nonBomb, true, protect);
     // 푼돈 트릭에 비싼 카드 아끼기
-    if (pick.combo.rank >= 14 && trickPts < 5 && hand.length > 7 && !partnerWinning) return null;
+    if (pick.combo.rank >= 14 && trickPts < 5 && n > 7 && !partnerWinning) return null;
     return pick;
   }
   // 폭탄만 가능할 때: 점수가 크거나, 상대 티츄 저지, 또는 막판이면 사용
   var w = game.lastPlayerSeat;
   var enemyTichu = w >= 0 && teamOf(w) !== teamOf(seat) && game.tichu[w] > 0;
-  if (trickPts >= 13 || enemyTichu || hand.length <= 6) return cheapest(moves, false);
+  if (trickPts >= 13 || enemyTichu || n <= 6) return cheapest(moves, false, protect);
   return null;
 }
 
