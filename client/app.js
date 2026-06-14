@@ -1101,6 +1101,14 @@ function init() {
   state.urlRoom = (new URLSearchParams(location.search).get('room') || '').toUpperCase().slice(0, 4);
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js').catch(function () {});
+    // 새 버전이 배포돼 새 서비스워커가 제어를 넘겨받으면 한 번만 자동 새로고침
+    // (첫 설치는 제외 — controller가 이미 있을 때만 = 업데이트)
+    var hadController = !!navigator.serviceWorker.controller, swReloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (swReloaded || !hadController) return;
+      swReloaded = true;
+      location.reload();
+    });
   }
   window.addEventListener('resize', fitHand);
   // 항상 접속 시도 — 방 목록 표시 + 진행 중 게임 자동 복귀 (오프라인이면 조용히 실패)
