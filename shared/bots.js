@@ -295,7 +295,7 @@ function positionalEval(g, myTeam) {
 function playout(g, myTeam, deadline) {
   var guard = 0;
   while (g.phase !== 'roundEnd' && g.phase !== 'gameEnd') {
-    if (deadline && (guard & 3) === 0 && Date.now() > deadline) return positionalEval(g, myTeam); // 시뮬 도중에도 시간 컷
+    if (deadline && Date.now() > deadline) return positionalEval(g, myTeam); // 매 수마다 시간 컷 — 서버 블록 최소화
     var w = g.waitingOn(); if (!w.length) break;
     var a = botDecide(g, w[0], 'normal'); if (!a) break;
     if (!g.apply(a).ok) break;
@@ -352,7 +352,7 @@ function botDecide(game, seat, level) {
     // 고수: 시간 컷(180ms 절대 한도)이 시뮬 도중에도 걸려 서버를 멈추지 않음.
     //       빠른 기기(혼자 연습)는 샘플 많이→강함, 느린 무료서버는 샘플 적게→안전. 자동 조절.
     if (level === 'devil') mv = searchMove(game, seat, { perfect: true, samples: 1, budgetMs: 400 });
-    else if (level === 'hard') mv = searchMove(game, seat, { perfect: false, samples: 40, budgetMs: 180 });
+    else if (level === 'hard') mv = searchMove(game, seat, { perfect: false, samples: 60, budgetMs: 300 });
     else if (easy) { var e = botPlayEasy(game, seat); mv = e ? { play: e } : { pass: true }; }
     else { var p = botPlay(game, seat); mv = p ? { play: p } : { pass: true }; }
     if (mv.pass || !mv.play) return { type: 'pass_turn', seat: seat };
