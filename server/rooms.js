@@ -449,8 +449,8 @@ function handle(player, a) {
       for (var f = 0; f < 4; f++) if (!room.seats[f]) room.seats[f] = makeBot(f, room);
       var ts = (a.targetScore === 300 || a.targetScore === 500 || a.targetScore === 1000) ? a.targetScore : 1000;
       room.targetScore = ts;
-      // 온라인 방은 쉬움/보통만 — 고수(탐색)는 0.1 CPU 서버를 멈추고, 악마(상대 패 열람)는 사람에게 불공정
-      room.botLevel = ['easy', 'normal'].indexOf(a.botLevel) >= 0 ? a.botLevel : 'normal';
+      // 온라인은 쉬움/보통/고수까지(고수 탐색은 180ms 시간컷으로 서버 안전). 악마(상대 패 열람)는 사람에게 불공정 → 제외
+      room.botLevel = ['easy', 'normal', 'hard'].indexOf(a.botLevel) >= 0 ? a.botLevel : 'normal';
       room.game = new C.Game({ targetScore: ts });
       room.lastActivity = now();
       scheduleBots(room);

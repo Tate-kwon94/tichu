@@ -475,16 +475,15 @@ function roomListHtml() {
 function botLevelPicker(full) {
   var opts = full
     ? [['easy', STR.botEasy], ['normal', STR.botNormal], ['hard', STR.botHard], ['devil', STR.botDevil]]
-    : [['easy', STR.botEasy], ['normal', STR.botNormal]];
-  var lv = full ? state.botLevel : (state.botLevel === 'hard' || state.botLevel === 'devil' ? 'normal' : state.botLevel);
-  var hint = full ? (lv === 'hard' ? STR.botHintHard : lv === 'devil' ? STR.botHintDevil : '') : '';
+    : [['easy', STR.botEasy], ['normal', STR.botNormal], ['hard', STR.botHard]]; // 온라인은 악마 제외
+  var lv = full ? state.botLevel : (state.botLevel === 'devil' ? 'hard' : state.botLevel); // 온라인에서 악마 선택값은 고수로
+  var hint = (lv === 'hard') ? STR.botHintHard : (full && lv === 'devil') ? STR.botHintDevil : '';
   return '<div class="targetRow botRow"><span class="targetLbl">' + STR.botLevelLbl + '</span>' +
     opts.map(function (o) {
       return '<button class="btn small ' + (lv === o[0] ? (o[0] === 'devil' ? 'danger' : 'primary') : 'ghost') +
         '" data-act="botlevel" data-l="' + o[0] + '">' + o[1] + '</button>';
     }).join('') + '</div>' +
-    (hint ? '<div class="botHint">' + hint + '</div>' : '') +
-    (full ? '' : '<div class="botHint">' + STR.botOnlineNote + '</div>');
+    (hint ? '<div class="botHint">' + hint + '</div>' : '');
 }
 
 function renderGame() {
@@ -964,7 +963,7 @@ function onClick(e) {
     case 'bot-del': send({ type: 'remove_bot', seat: seat }); break;
     case 'kick': send({ type: 'kick_player', seat: seat }); break;
     case 'start': {
-      var onLv = (state.botLevel === 'hard' || state.botLevel === 'devil') ? 'normal' : state.botLevel;
+      var onLv = state.botLevel === 'devil' ? 'hard' : state.botLevel; // 온라인은 악마 불가 → 고수로
       send({ type: 'start_game', targetScore: state.lobbyTarget, botLevel: onLv });
       break;
     }

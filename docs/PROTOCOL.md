@@ -36,7 +36,7 @@
 | `set_name` | `name` | 대기실에서만, 12자 |
 | `add_bot` / `remove_bot` | `seat` | 방장만, 대기실에서만 |
 | `kick_player` | `seat` | 방장만. 게임 중이면 그 자리는 봇으로 전환 |
-| `start_game` | `targetScore?`(300/500/1000), `botLevel?`(easy/normal) | 방장만. 빈자리 봇 채움 → grand. **온라인은 easy/normal만**(hard/devil은 서버에서 normal로 강등 — 0.1 CPU 보호·공정성). hard/devil은 혼자 연습(클라이언트)에서만 |
+| `start_game` | `targetScore?`(300/500/1000), `botLevel?`(easy/normal/hard) | 방장만. 빈자리 봇 채움 → grand. **온라인은 easy/normal/hard**(고수 탐색은 180ms 시간컷으로 서버 안전). devil(악마, 상대 패 열람)은 불공정 → 서버에서 거부, 혼자 연습에서만 |
 | `list_rooms` | — | 방 목록. ack에 `rooms:[{code,host,occupied,humans,inGame,target}]` 포함 (최신순, 최대 30) |
 | `leave_room` | — | 게임 중 나가면 영구 봇 전환 |
 | `call_grand` | `call`(bool) | 8장 보고 응답. 4명 모두 응답하면 6장 추가 배분 → exchange |

@@ -283,16 +283,25 @@ function determinize(game, seat) {
   for (var o = 0; o < others.length; o++) { var cnt = g.hands[others[o]].length; g.hands[others[o]] = pool.slice(k, k + cnt); k += cnt; }
   return g;
 }
-// 현재 상태에서 라운드 종료까지 휴리스틱('보통')으로 진행 → seat팀 점수차
-function playout(g, myTeam) {
+// 비종료 상태의 대략 평가: 지금까지 딴 점수차 + 손패 적을수록(완주 임박) 가점
+function positionalEval(g, myTeam) {
+  var cap = [0, 0], cards = [0, 0];
+  for (var s = 0; s < 4; s++) { cap[s % 2] += sumPoints(g.tricksWon[s]); cards[s % 2] += g.hands[s].length; }
+  var pts = myTeam === 0 ? (cap[0] - cap[1]) : (cap[1] - cap[0]);
+  var lead = myTeam === 0 ? (cards[1] - cards[0]) : (cards[0] - cards[1]);
+  return pts + lead * 1.5;
+}
+// 라운드 종료까지 휴리스틱('보통')으로 진행 → seat팀 점수차. deadline 넘으면 위치평가로 컷.
+function playout(g, myTeam, deadline) {
   var guard = 0;
   while (g.phase !== 'roundEnd' && g.phase !== 'gameEnd') {
+    if (deadline && (guard & 3) === 0 && Date.now() > deadline) return positionalEval(g, myTeam); // 시뮬 도중에도 시간 컷
     var w = g.waitingOn(); if (!w.length) break;
     var a = botDecide(g, w[0], 'normal'); if (!a) break;
     if (!g.apply(a).ok) break;
     if (++guard > 2000) break;
   }
-  if (!g.roundSummary) return 0;
+  if (!g.roundSummary) return positionalEval(g, myTeam);
   var d = g.roundSummary.deltas;
   return myTeam === 0 ? (d.teamA - d.teamB) : (d.teamB - d.teamA);
 }
@@ -306,18 +315,17 @@ function searchMove(game, seat, opts) {
   if (game.currentCombo && !gm.forced) cands.push({ pass: true }); // 따라갈 땐 패스도 후보
   var myTeam = teamOf(seat);
   var totals = cands.map(function () { return 0; }), counts = cands.map(function () { return 0; });
-  var t0 = Date.now(), reps = 0;
+  var t0 = Date.now(), deadline = t0 + opts.budgetMs; // 절대 한도 — 플레이아웃 내부에서도 체크
   for (var rep = 0; rep < opts.samples; rep++) {
-    if (Date.now() - t0 > opts.budgetMs) break;
+    if (Date.now() > deadline) break;
     var det = opts.perfect ? cloneGame(game) : determinize(game, seat);
-    reps++;
     for (var ci = 0; ci < cands.length; ci++) {
       var sim = cloneGame(det), act;
       if (cands[ci].pass) act = { type: 'pass_turn', seat: seat };
       else act = { type: 'play_cards', seat: seat, cards: cands[ci].play.cards };
       if (!sim.apply(act).ok) continue;
-      totals[ci] += playout(sim, myTeam); counts[ci]++;
-      if (Date.now() - t0 > opts.budgetMs * 1.5) break;
+      totals[ci] += playout(sim, myTeam, deadline); counts[ci]++;
+      if (Date.now() > deadline) break;
     }
   }
   var best = null, bestAvg = -Infinity;
@@ -341,8 +349,10 @@ function botDecide(game, seat, level) {
   }
   if (phase === 'play' && game.turnSeat === seat && game.finished.indexOf(seat) < 0) {
     var mv;
+    // 고수: 시간 컷(180ms 절대 한도)이 시뮬 도중에도 걸려 서버를 멈추지 않음.
+    //       빠른 기기(혼자 연습)는 샘플 많이→강함, 느린 무료서버는 샘플 적게→안전. 자동 조절.
     if (level === 'devil') mv = searchMove(game, seat, { perfect: true, samples: 1, budgetMs: 400 });
-    else if (level === 'hard') mv = searchMove(game, seat, { perfect: false, samples: 14, budgetMs: 220 });
+    else if (level === 'hard') mv = searchMove(game, seat, { perfect: false, samples: 40, budgetMs: 180 });
     else if (easy) { var e = botPlayEasy(game, seat); mv = e ? { play: e } : { pass: true }; }
     else { var p = botPlay(game, seat); mv = p ? { play: p } : { pass: true }; }
     if (mv.pass || !mv.play) return { type: 'pass_turn', seat: seat };
