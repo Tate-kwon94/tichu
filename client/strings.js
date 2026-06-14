@@ -55,6 +55,7 @@ var STR = {
   botDevil: '악마',
   botHintHard: '고수: 끝까지 수읽기 (조금 느릴 수 있어요)',
   botHintDevil: '악마: 상대 패를 보고 둡니다 (사실상 무적)',
+  botOnlineNote: '고수·악마는 「혼자 연습」에서만',
   roomListTitle: '열린 방',
   roomListEmpty: '아직 열린 방이 없습니다 — 첫 방을 만들어보세요',
   inGameCount: '게임중',

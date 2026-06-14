@@ -436,7 +436,7 @@ function renderHome() {
     '</div>' +
     '<button class="btn ghost" data-act="solo">' + STR.solo + '</button>' +
     (canResume ? '<button class="btn ghost" data-act="solo-resume">' + STR.soloResume + '</button>' : '') +
-    botLevelPicker() +
+    botLevelPicker(true) +
     '<div class="row"><button class="btn ghost grow" data-act="help-open">' + STR.rulesBtn + '</button>' +
     '<button class="btn ghost grow" data-act="office-toggle">' + (state.office ? '위장 끄기' : '▦ 위장') + '</button></div>' +
     '<div class="connStatus"><span id="connTxt"></span></div>' +
@@ -471,14 +471,20 @@ function roomListHtml() {
     '<span class="grow"></span><button class="btn small ghost" data-act="rooms-refresh">↻</button></div>' +
     inner + '</div>';
 }
-function botLevelPicker() {
-  var hint = state.botLevel === 'hard' ? STR.botHintHard : state.botLevel === 'devil' ? STR.botHintDevil : '';
+// full=true(혼자 연습): 4단계 전부. full=false(온라인 로비): 쉬움/보통만(서버 보호·공정성)
+function botLevelPicker(full) {
+  var opts = full
+    ? [['easy', STR.botEasy], ['normal', STR.botNormal], ['hard', STR.botHard], ['devil', STR.botDevil]]
+    : [['easy', STR.botEasy], ['normal', STR.botNormal]];
+  var lv = full ? state.botLevel : (state.botLevel === 'hard' || state.botLevel === 'devil' ? 'normal' : state.botLevel);
+  var hint = full ? (lv === 'hard' ? STR.botHintHard : lv === 'devil' ? STR.botHintDevil : '') : '';
   return '<div class="targetRow botRow"><span class="targetLbl">' + STR.botLevelLbl + '</span>' +
-    [['easy', STR.botEasy], ['normal', STR.botNormal], ['hard', STR.botHard], ['devil', STR.botDevil]].map(function (o) {
-      return '<button class="btn small ' + (state.botLevel === o[0] ? (o[0] === 'devil' ? 'danger' : 'primary') : 'ghost') +
+    opts.map(function (o) {
+      return '<button class="btn small ' + (lv === o[0] ? (o[0] === 'devil' ? 'danger' : 'primary') : 'ghost') +
         '" data-act="botlevel" data-l="' + o[0] + '">' + o[1] + '</button>';
     }).join('') + '</div>' +
-    (hint ? '<div class="botHint">' + hint + '</div>' : '');
+    (hint ? '<div class="botHint">' + hint + '</div>' : '') +
+    (full ? '' : '<div class="botHint">' + STR.botOnlineNote + '</div>');
 }
 
 function renderGame() {
@@ -562,7 +568,7 @@ function renderLobby() {
     '<div class="seatGrid">' + seats + '</div>' +
     '<div class="lobbyHint">' + STR.teamHint + '</div>' +
     (isHost()
-      ? targetPicker() + botLevelPicker() + '<button class="btn primary" data-act="start">' + STR.start + ' (빈자리는 봇)</button>'
+      ? targetPicker() + botLevelPicker(false) + '<button class="btn primary" data-act="start">' + STR.start + ' (빈자리는 봇)</button>'
       : '<div class="lobbyHint">' + STR.waitingHost + '</div>') +
   '</div>';
 }
@@ -957,7 +963,11 @@ function onClick(e) {
     case 'bot-add': send({ type: 'add_bot', seat: seat }); break;
     case 'bot-del': send({ type: 'remove_bot', seat: seat }); break;
     case 'kick': send({ type: 'kick_player', seat: seat }); break;
-    case 'start': send({ type: 'start_game', targetScore: state.lobbyTarget, botLevel: state.botLevel }); break;
+    case 'start': {
+      var onLv = (state.botLevel === 'hard' || state.botLevel === 'devil') ? 'normal' : state.botLevel;
+      send({ type: 'start_game', targetScore: state.lobbyTarget, botLevel: onLv });
+      break;
+    }
     case 'target': state.lobbyTarget = +el.getAttribute('data-n'); render(); break;
     case 'botlevel': {
       var lv = el.getAttribute('data-l');
