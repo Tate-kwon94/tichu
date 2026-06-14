@@ -7,7 +7,7 @@ var NAMES = ['나', '레오', '미나', '준'];
 
 function create(handlers, resume, botLevel) {
   var C = TichuCore, B = TichuBots;
-  botLevel = botLevel === 'easy' ? 'easy' : 'normal';
+  botLevel = ['easy', 'normal', 'hard', 'devil'].indexOf(botLevel) >= 0 ? botLevel : 'normal';
   var game = null;
   if (resume) {
     try {

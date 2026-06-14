@@ -449,7 +449,7 @@ function handle(player, a) {
       for (var f = 0; f < 4; f++) if (!room.seats[f]) room.seats[f] = makeBot(f, room);
       var ts = (a.targetScore === 300 || a.targetScore === 500 || a.targetScore === 1000) ? a.targetScore : 1000;
       room.targetScore = ts;
-      room.botLevel = a.botLevel === 'easy' ? 'easy' : 'normal';
+      room.botLevel = ['easy', 'normal', 'hard', 'devil'].indexOf(a.botLevel) >= 0 ? a.botLevel : 'normal';
       room.game = new C.Game({ targetScore: ts });
       room.lastActivity = now();
       scheduleBots(room);

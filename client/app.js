@@ -472,11 +472,13 @@ function roomListHtml() {
     inner + '</div>';
 }
 function botLevelPicker() {
-  return '<div class="targetRow"><span class="targetLbl">' + STR.botLevelLbl + '</span>' +
-    [['easy', STR.botEasy], ['normal', STR.botNormal]].map(function (o) {
-      return '<button class="btn small ' + (state.botLevel === o[0] ? 'primary' : 'ghost') +
+  var hint = state.botLevel === 'hard' ? STR.botHintHard : state.botLevel === 'devil' ? STR.botHintDevil : '';
+  return '<div class="targetRow botRow"><span class="targetLbl">' + STR.botLevelLbl + '</span>' +
+    [['easy', STR.botEasy], ['normal', STR.botNormal], ['hard', STR.botHard], ['devil', STR.botDevil]].map(function (o) {
+      return '<button class="btn small ' + (state.botLevel === o[0] ? (o[0] === 'devil' ? 'danger' : 'primary') : 'ghost') +
         '" data-act="botlevel" data-l="' + o[0] + '">' + o[1] + '</button>';
-    }).join('') + '</div>';
+    }).join('') + '</div>' +
+    (hint ? '<div class="botHint">' + hint + '</div>' : '');
 }
 
 function renderGame() {
@@ -957,11 +959,13 @@ function onClick(e) {
     case 'kick': send({ type: 'kick_player', seat: seat }); break;
     case 'start': send({ type: 'start_game', targetScore: state.lobbyTarget, botLevel: state.botLevel }); break;
     case 'target': state.lobbyTarget = +el.getAttribute('data-n'); render(); break;
-    case 'botlevel':
-      state.botLevel = el.getAttribute('data-l') === 'easy' ? 'easy' : 'normal';
+    case 'botlevel': {
+      var lv = el.getAttribute('data-l');
+      state.botLevel = ['easy', 'normal', 'hard', 'devil'].indexOf(lv) >= 0 ? lv : 'normal';
       try { localStorage.setItem('tichu.botlevel', state.botLevel); } catch (e3) {}
       render();
       break;
+    }
     case 'join-room': joinRoom(el.getAttribute('data-code')); break;
     case 'rooms-refresh': requestRooms(); break;
     case 'copy': {
@@ -1084,7 +1088,7 @@ function init() {
   state.name = '';
   try { state.name = localStorage.getItem('tichu.name') || ''; } catch (e) {}
   try { state.office = localStorage.getItem('tichu.office') === '1'; } catch (e) {}
-  try { state.botLevel = localStorage.getItem('tichu.botlevel') === 'easy' ? 'easy' : 'normal'; } catch (e) {}
+  try { var bl = localStorage.getItem('tichu.botlevel'); state.botLevel = ['easy', 'normal', 'hard', 'devil'].indexOf(bl) >= 0 ? bl : 'normal'; } catch (e) {}
   state.urlRoom = (new URLSearchParams(location.search).get('room') || '').toUpperCase().slice(0, 4);
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js').catch(function () {});

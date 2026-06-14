@@ -10,7 +10,37 @@
 
 var genMoves = C.genMoves, isSpecial = C.isSpecial, isBomb = C.isBomb,
     rankOf = C.rankOf, sumPoints = C.sumPoints, partnerOf = C.partnerOf,
-    teamOf = C.teamOf, sortHand = C.sortHand;
+    teamOf = C.teamOf, sortHand = C.sortHand, makeDeck = C.makeDeck;
+
+// ---------- 카드 카운팅 (확정승 판정) ----------
+// 미관측 집합: 전체 덱 − 내 손 − 이미 나온 카드 = 상대 3명 손에 남은 카드
+function outstanding(game, seat) {
+  var seen = {};
+  game.hands[seat].forEach(function (id) { seen[id] = 1; });
+  for (var s = 0; s < 4; s++) for (var i = 0; i < game.tricksWon[s].length; i++) seen[game.tricksWon[s][i]] = 1;
+  for (var j = 0; j < game.trickPile.length; j++) seen[game.trickPile[j]] = 1;
+  return makeDeck().filter(function (id) { return !seen[id]; });
+}
+// 싱글로 냈을 때 더 이상 아무도 못 이기는가(확정승)
+function bossSingleRank(rank, out) {
+  if (rank >= 15) return true;              // 용
+  if (out.indexOf('DR') >= 0) return false; // 상대에 용
+  if (out.indexOf('PH') >= 0) return false; // 불사조가 비-용 싱글을 모두 이김
+  var mx = 0;
+  for (var i = 0; i < out.length; i++) if (!isSpecial(out[i])) { var r = rankOf(out[i]); if (r > mx) mx = r; }
+  return rank > mx;
+}
+function isBossCard(id, out) {
+  if (id === 'DR') return true;
+  if (isSpecial(id)) return false; // 마작·개·불사조는 단독 확정승 아님
+  return bossSingleRank(rankOf(id), out);
+}
+// 확정승 싱글 보유 수(= 내가 통제 가능한 트릭 수 근사)
+function controlCount(hand, out) {
+  var c = 0;
+  for (var i = 0; i < hand.length; i++) if (isBossCard(hand[i], out)) c++;
+  return c;
+}
 
 // ---------- 선언 판단 ----------
 function strength(hand) {
@@ -126,7 +156,7 @@ function breaksBomb(m, protect) {
   for (var i = 0; i < m.cards.length; i++) if (protect[m.cards[i]]) return true;
   return false;
 }
-function leadValue(m, protect) {
+function leadValue(m, protect, ctx) {
   if (m.combo.type === 'dog') return -100; // 개는 일찍 처분
   var v = m.combo.rank * 2 - m.cards.length * 3;
   if (m.cards.indexOf('PH') >= 0) v += 12;
@@ -151,10 +181,10 @@ function cheapest(moves, penalizeSpecials, protect) {
   return best;
 }
 // 반환: {cards} (낼 수) | null (패스)
-function lowestLead(moves, protect) {
+function lowestLead(moves, protect, ctx) {
   var best = null, bv = Infinity;
   for (var i = 0; i < moves.length; i++) {
-    var v = leadValue(moves[i], protect);
+    var v = leadValue(moves[i], protect, ctx);
     if (v < bv) { bv = v; best = moves[i]; }
   }
   return best;
@@ -241,6 +271,60 @@ function botPlayEasy(game, seat) {
   return pool2[Math.floor(Math.random() * pool2.length)];
 }
 
+// ---------- 탐색(몬테카를로) — 고수/악마 난이도 ----------
+function cloneGame(game) { return C.Game.fromJSON(game.toJSON()); }
+// 미관측 카드를 상대 손패 수에 맞춰 무작위 재분배(결정화)
+function determinize(game, seat) {
+  var g = cloneGame(game);
+  var others = [], pool = [];
+  for (var s = 0; s < 4; s++) if (s !== seat) { others.push(s); pool = pool.concat(g.hands[s]); }
+  for (var i = pool.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = pool[i]; pool[i] = pool[j]; pool[j] = t; }
+  var k = 0;
+  for (var o = 0; o < others.length; o++) { var cnt = g.hands[others[o]].length; g.hands[others[o]] = pool.slice(k, k + cnt); k += cnt; }
+  return g;
+}
+// 현재 상태에서 라운드 종료까지 휴리스틱('보통')으로 진행 → seat팀 점수차
+function playout(g, myTeam) {
+  var guard = 0;
+  while (g.phase !== 'roundEnd' && g.phase !== 'gameEnd') {
+    var w = g.waitingOn(); if (!w.length) break;
+    var a = botDecide(g, w[0], 'normal'); if (!a) break;
+    if (!g.apply(a).ok) break;
+    if (++guard > 2000) break;
+  }
+  if (!g.roundSummary) return 0;
+  var d = g.roundSummary.deltas;
+  return myTeam === 0 ? (d.teamA - d.teamB) : (d.teamB - d.teamA);
+}
+// 후보 수(낼 수 + 패스)를 N회 플레이아웃해 평균 점수가 가장 좋은 수 선택. 시간예산 budgetMs.
+function searchMove(game, seat, opts) {
+  var gm = genMoves(game.hands[seat], game.currentCombo, game.wish);
+  var moves = gm.moves;
+  if (!moves.length) return { pass: true };
+  if (moves.length === 1 && !game.currentCombo) return { play: moves[0] };
+  var cands = moves.map(function (m) { return { play: m }; });
+  if (game.currentCombo && !gm.forced) cands.push({ pass: true }); // 따라갈 땐 패스도 후보
+  var myTeam = teamOf(seat);
+  var totals = cands.map(function () { return 0; }), counts = cands.map(function () { return 0; });
+  var t0 = Date.now(), reps = 0;
+  for (var rep = 0; rep < opts.samples; rep++) {
+    if (Date.now() - t0 > opts.budgetMs) break;
+    var det = opts.perfect ? cloneGame(game) : determinize(game, seat);
+    reps++;
+    for (var ci = 0; ci < cands.length; ci++) {
+      var sim = cloneGame(det), act;
+      if (cands[ci].pass) act = { type: 'pass_turn', seat: seat };
+      else act = { type: 'play_cards', seat: seat, cards: cands[ci].play.cards };
+      if (!sim.apply(act).ok) continue;
+      totals[ci] += playout(sim, myTeam); counts[ci]++;
+      if (Date.now() - t0 > opts.budgetMs * 1.5) break;
+    }
+  }
+  var best = null, bestAvg = -Infinity;
+  for (var c = 0; c < cands.length; c++) { if (!counts[c]) continue; var avg = totals[c] / counts[c]; if (avg > bestAvg) { bestAvg = avg; best = cands[c]; } }
+  return best || { play: botPlay(game, seat) || moves[0] };
+}
+
 // ---------- 통합 의사결정: 현재 상태에서 seat가 할 액션 ----------
 function botDecide(game, seat, level) {
   var easy = level === 'easy';
@@ -256,12 +340,16 @@ function botDecide(game, seat, level) {
     return { type: 'give_dragon', seat: seat, toSeat: botDragon(game, seat) };
   }
   if (phase === 'play' && game.turnSeat === seat && game.finished.indexOf(seat) < 0) {
-    var mv = easy ? botPlayEasy(game, seat) : botPlay(game, seat);
-    if (!mv) return { type: 'pass_turn', seat: seat };
-    var a = { type: 'play_cards', seat: seat, cards: mv.cards };
-    if (mv.cards.indexOf('MJ') >= 0) {
-      var after = game.hands[seat].filter(function (id) { return mv.cards.indexOf(id) < 0; });
-      var wsh = botWish(after);
+    var mv;
+    if (level === 'devil') mv = searchMove(game, seat, { perfect: true, samples: 1, budgetMs: 400 });
+    else if (level === 'hard') mv = searchMove(game, seat, { perfect: false, samples: 14, budgetMs: 220 });
+    else if (easy) { var e = botPlayEasy(game, seat); mv = e ? { play: e } : { pass: true }; }
+    else { var p = botPlay(game, seat); mv = p ? { play: p } : { pass: true }; }
+    if (mv.pass || !mv.play) return { type: 'pass_turn', seat: seat };
+    var cards = mv.play.cards;
+    var a = { type: 'play_cards', seat: seat, cards: cards };
+    if (cards.indexOf('MJ') >= 0) {
+      var wsh = botWish(game.hands[seat].filter(function (id) { return cards.indexOf(id) < 0; }));
       if (wsh) a.wish = wsh;
     }
     return a;

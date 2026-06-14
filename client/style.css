@@ -277,8 +277,12 @@ input { font: inherit; }
 .playWho { position: absolute; bottom: 0; left: 0; right: 0; text-align: center; font-size: 9px; opacity: .7; white-space: nowrap; }
 
 /* ---------- 목표 점수 선택 ---------- */
-.targetRow { display: flex; align-items: center; gap: 6px; justify-content: center; margin-bottom: 8px; }
+.targetRow { display: flex; align-items: center; gap: 6px; justify-content: center; margin-bottom: 8px; flex-wrap: wrap; }
 .targetLbl { font-size: 13px; opacity: .8; white-space: nowrap; flex: none; }
+.targetRow .btn { width: auto; } /* .home .btn{width:100%} 무력화 — 한 줄에 나란히 */
+.botRow .targetLbl { flex: 1 0 100%; text-align: center; margin-bottom: 2px; }
+.botRow .btn { flex: 1; min-width: 0; padding: 8px 4px; }
+.botHint { font-size: 12px; opacity: .75; text-align: center; margin: -2px 0 8px; }
 
 /* ---------- 방 목록 ---------- */
 .roomList {
