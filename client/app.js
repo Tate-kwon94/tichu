@@ -20,6 +20,7 @@ var state = {
   helpFromModal: false,  // 모달 위에 띄운 도움말인지 (닫으면 원래 모달로)
   replaced: false,
   office: false,         // 엑셀 위장 모드
+  ghost: 0,              // 반투명 모드 0=끔 1=연하게 2=아주 연하게 (위장과 병행 가능)
   tichuArmed: 0,         // 티츄 2탭 확인: 1차 탭 시각(ms)
   lobbyTarget: 1000,     // 로비에서 고른 목표 점수
   showHistory: false,    // 점수 히스토리 패널
@@ -353,6 +354,8 @@ function render() {
     prevChatTop = oldList.scrollTop;
   }
   document.body.classList.toggle('office', !!state.office);
+  document.body.classList.toggle('ghost1', state.ghost === 1);
+  document.body.classList.toggle('ghost2', state.ghost === 2);
   applyDisguise();
   var inner = state.screen === 'home' ? renderHome() : renderGame();
   if (state.office) inner = officeTop() + '<div class="officeBody">' + inner + '</div>' + officeBottom();
@@ -382,6 +385,12 @@ function applyDisguise() {
     var want = state.office ? 'icons/xlsx.svg' : 'icons/icon.svg';
     if (icon.getAttribute('href') !== want) icon.setAttribute('href', want);
   }
+}
+
+// 반투명 버튼 — 누를 때마다 끔→연하게→아주 연하게 순환
+function ghostBtnHtml() {
+  var icon = state.ghost === 0 ? '◐' : state.ghost === 1 ? '◑' : '○';
+  return '<button class="btn small ghost" data-act="ghost-toggle" title="' + STR.ghostBtn + '">' + icon + '</button>';
 }
 
 // ---------- 엑셀 위장 모드 장식 ----------
@@ -438,7 +447,8 @@ function renderHome() {
     (canResume ? '<button class="btn ghost" data-act="solo-resume">' + STR.soloResume + '</button>' : '') +
     botLevelPicker(true) +
     '<div class="row"><button class="btn ghost grow" data-act="help-open">' + STR.rulesBtn + '</button>' +
-    '<button class="btn ghost grow" data-act="office-toggle">' + (state.office ? '위장 끄기' : '▦ 위장') + '</button></div>' +
+    '<button class="btn ghost grow" data-act="office-toggle">' + (state.office ? '위장 끄기' : '▦ 위장') + '</button>' +
+    ghostBtnHtml() + '</div>' +
     '<div class="connStatus"><span id="connTxt"></span></div>' +
   '</div>' + (state.help ? helpModal() : '');
 }
@@ -454,12 +464,21 @@ function roomListHtml() {
   } else {
     var L = state.roomList || [];
     var open = L.filter(function (r) { return !r.inGame && r.occupied < 4; });
-    var busy = L.filter(function (r) { return r.inGame || r.occupied >= 4; });
+    // 게임 중이라도 봇 자리가 있으면 이어받기 가능(팅김·실수 퇴장 복구)
+    var rejoin = L.filter(function (r) { return r.inGame && r.bots > 0; });
+    var busy = L.filter(function (r) {
+      return (r.inGame && !(r.bots > 0)) || (!r.inGame && r.occupied >= 4);
+    });
     var rows = open.map(function (r) {
       return '<button class="roomRow" data-act="join-room" data-code="' + esc(r.code) + '">' +
         '<b>' + esc(r.host) + '</b>의 방' +
         '<span class="chip dim">' + r.occupied + '/4</span>' +
         '<span class="grow"></span><span class="chip gold">입장 ›</span></button>';
+    }).join('') + rejoin.map(function (r) {
+      return '<button class="roomRow" data-act="join-room" data-code="' + esc(r.code) + '">' +
+        '<b>' + esc(r.host) + '</b>의 방' +
+        '<span class="chip dim">' + STR.inGameCount + '</span>' +
+        '<span class="grow"></span><span class="chip gold">' + STR.rejoinChip + '</span></button>';
     }).join('') + busy.map(function (r) {
       return '<div class="roomRow rrBusy"><b>' + esc(r.host) + '</b>의 방' +
         '<span class="chip dim">' + (r.inGame ? STR.inGameCount : '4/4') + '</span>' +
@@ -561,6 +580,7 @@ function renderLobby() {
     '<span class="grow"></span>' +
     chatBtnHtml() +
     '<button class="btn small ghost" data-act="office-toggle" title="위장 모드">▦</button>' +
+    ghostBtnHtml() +
     '<button class="btn small ghost" data-act="leave">' + STR.leave + '</button></div>' +
     '<div class="codeBig">' + esc(snap.code || '') + '</div>' +
     '<button class="btn ghost" data-act="copy">' + STR.copyLink + '</button>' +
@@ -590,6 +610,7 @@ function renderTable() {
     (snap.code ? '<span class="chip dim">' + esc(snap.code) + '</span>' : '') +
     chatBtnHtml() +
     '<button class="btn small ghost" data-act="office-toggle" title="위장 모드">▦</button>' +
+    ghostBtnHtml() +
     '<button class="btn small ghost" data-act="help-open">?</button>' +
     '<button class="btn small ghost" data-act="leave">' + STR.leave + '</button>' +
   '</div>';
@@ -679,7 +700,7 @@ function lastActionLine() {
     case 'grand_pass': return '';
     case 'dog': return em('🐶 ') + nm + ' 개 — 파트너 턴으로';
     case 'trick_won': return nm + ' 카드 가져감' + (la.dragon ? ' (용 — 증정 대기)' : '');
-    case 'dragon_give': return em('🐉 ') + nm + ' → ' + esc(seatName(la.toSeat)) + ' 카드 증정';
+    case 'dragon_give': return em('🐉 ') + nm + ' → ' + esc(seatName(la.toSeat)) + ' 카드 증정' + (la.auto ? ' (남은 상대 자동)' : '');
     case 'exchange_done': return '교환 완료 — ' + esc(seatName(la.leader)) + ' 턴부터 (1 보유)';
     case 'round_end': return '';
     default: return '';
@@ -934,6 +955,14 @@ function doPlay() {
 }
 
 function onClick(e) {
+  // 반투명 모드 중 모달이 떠 있으면 backdrop이 헤더의 ◐ 버튼을 덮음 →
+  // 흐린 화면 아무 곳(backdrop) 탭으로 반투명을 해제할 수 있게 탈출구 제공
+  if (state.ghost && e.target.classList && e.target.classList.contains('backdrop')) {
+    state.ghost = 0;
+    try { localStorage.setItem('tichu.ghost', '0'); } catch (eg) {}
+    render();
+    return;
+  }
   // 모달 바깥(backdrop) 직접 클릭 → 지정된 닫기 동작
   if (e.target.dataset && e.target.dataset.dismiss) {
     if (e.target.dataset.dismiss === 'wish-cancel') { state.wishCards = null; render(); }
@@ -1076,6 +1105,11 @@ function onClick(e) {
       try { localStorage.setItem('tichu.office', state.office ? '1' : '0'); } catch (e2) {}
       render();
       break;
+    case 'ghost-toggle':
+      state.ghost = (state.ghost + 1) % 3;
+      try { localStorage.setItem('tichu.ghost', String(state.ghost)); } catch (e3) {}
+      render();
+      break;
   }
 }
 
@@ -1097,6 +1131,7 @@ function init() {
   state.name = '';
   try { state.name = localStorage.getItem('tichu.name') || ''; } catch (e) {}
   try { state.office = localStorage.getItem('tichu.office') === '1'; } catch (e) {}
+  try { var gh = parseInt(localStorage.getItem('tichu.ghost') || '0', 10); state.ghost = (gh === 1 || gh === 2) ? gh : 0; } catch (e) {}
   try { var bl = localStorage.getItem('tichu.botlevel'); state.botLevel = ['easy', 'normal', 'hard', 'devil'].indexOf(bl) >= 0 ? bl : 'normal'; } catch (e) {}
   state.urlRoom = (new URLSearchParams(location.search).get('room') || '').toUpperCase().slice(0, 4);
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {

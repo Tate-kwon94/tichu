@@ -15,7 +15,11 @@ function create(handlers) {
     localStorage.setItem('tichu.cid', clientId);
   }
   var actionCounter = 0;
+  // 페이지 로드마다 새 salt — 카운터가 0부터 다시 시작해도 이전 로드의 actionId와
+  // 겹치지 않게 함 (서버 세션의 멱등 ack 캐시가 새 액션을 옛 ack으로 잘못 응답하는 것 방지)
+  var runSalt = Math.random().toString(36).slice(2, 6);
   var lastVersion = 0;
+  var lastRoom = null; // 버전 게이트는 방 단위 — 방이 바뀌면 리셋 (이어받기 직행 시 스냅샷 드롭 방지)
   var mode = null, tierIdx = 0;
   var ws = null, es = null, pollRun = 0;
   var alive = true, retries = 0, reconnectTimer = null;
@@ -31,12 +35,15 @@ function create(handlers) {
       case 'welcome':
         if (msg.token) { token = msg.token; try { localStorage.setItem('tichu.token', token); } catch (e) {} }
         lastVersion = msg.version || 0;
+        lastRoom = (msg.snapshot && msg.snapshot.code) || null;
         if (msg.protocolVersion && msg.protocolVersion !== PROTO && handlers.onStale) handlers.onStale();
         if (handlers.onWelcome) handlers.onWelcome(msg);
         if (msg.snapshot) handlers.onState(msg.snapshot);
         break;
       case 'room_state':
         if (msg.version != null) {
+          var rc = msg.snapshot && msg.snapshot.code;
+          if (rc && rc !== lastRoom) { lastRoom = rc; lastVersion = 0; }
           if (msg.version <= lastVersion) return;
           lastVersion = msg.version;
         }
@@ -55,6 +62,7 @@ function create(handlers) {
         break;
       case 'left_room':
         lastVersion = 0;
+        lastRoom = null;
         if (handlers.onLeft) handlers.onLeft(msg.reason || 'left');
         break;
     }
@@ -234,7 +242,7 @@ function create(handlers) {
   function send(action) {
     var a = {};
     for (var k in action) a[k] = action[k];
-    a.actionId = clientId + '-' + (++actionCounter);
+    a.actionId = clientId + '-' + runSalt + '-' + (++actionCounter);
     if (needsVersion(a.type) && a.version == null) a.version = lastVersion;
     if (mode === 'ws' && ws && ws.readyState === 1) {
       ws.send(JSON.stringify(a));

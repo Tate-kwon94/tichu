@@ -31,13 +31,13 @@
 |---|---|---|
 | `hello` | `token?`, `name?`, `protocolVersion` | 모든 (재)연결의 첫 메시지. 토큰이 방에 묶여 있으면 그대로 복귀 |
 | `create_room` | `name` | 생성자가 방장, 좌석 0 |
-| `join_room` | `code`, `name` | 빈 좌석 자동 배정. 오류: ROOM_NOT_FOUND / ROOM_FULL / GAME_IN_PROGRESS |
+| `join_room` | `code`, `name` | 빈 좌석 자동 배정. 게임 중이면 봇 자리 이어받기: 본인 세션 토큰으로 전환된 자리(origToken 일치) > 일반 봇 > 타인 전환 자리 순 — 이름은 표시용일 뿐 좌석 권리가 아님. 강퇴 토큰은 재입장 불가. 오류: ROOM_NOT_FOUND / ROOM_FULL / GAME_IN_PROGRESS(봇 자리 없음) / KICKED |
 | `take_seat` | `seat` | 대기실에서만 |
 | `set_name` | `name` | 대기실에서만, 12자 |
 | `add_bot` / `remove_bot` | `seat` | 방장만, 대기실에서만 |
 | `kick_player` | `seat` | 방장만. 게임 중이면 그 자리는 봇으로 전환 |
 | `start_game` | `targetScore?`(300/500/1000), `botLevel?`(easy/normal/hard) | 방장만. 빈자리 봇 채움 → grand. **온라인은 easy/normal/hard**(고수 탐색은 180ms 시간컷으로 서버 안전). devil(악마, 상대 패 열람)은 불공정 → 서버에서 거부, 혼자 연습에서만 |
-| `list_rooms` | — | 방 목록. ack에 `rooms:[{code,host,occupied,humans,inGame,target}]` 포함 (최신순, 최대 30) |
+| `list_rooms` | — | 방 목록. ack에 `rooms:[{code,host,occupied,humans,bots,inGame,target}]` 포함 (최신순, 최대 30) |
 | `leave_room` | — | 게임 중 나가면 영구 봇 전환 |
 | `call_grand` | `call`(bool) | 8장 보고 응답. 4명 모두 응답하면 6장 추가 배분 → exchange |
 | `call_tichu` | — | 자기 첫 플레이 전까지 |
@@ -64,7 +64,7 @@
 
 에러코드: `ROOM_NOT_FOUND, ROOM_FULL, GAME_IN_PROGRESS, SEAT_TAKEN, NOT_HOST, BAD_PHASE,
 NOT_YOUR_TURN, CARDS_NOT_IN_HAND, INVALID_COMBO, COMBO_TOO_LOW, WISH_REQUIRED,
-CANNOT_PASS_LEAD, STALE_VERSION, BAD_REQUEST, RATE_LIMITED`
+CANNOT_PASS_LEAD, STALE_VERSION, BAD_REQUEST, RATE_LIMITED, KICKED`
 
 ## 스냅샷 구조 (플레이어별 redacted)
 

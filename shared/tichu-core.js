@@ -516,12 +516,17 @@ Game.prototype._checkFinish = function (s) {
     return this._endRound({ oneTwo: true }); // 원투 피니시 — 즉시 종료
   }
   if (this.finished.length === 3) {
-    // 진행 중 트릭은 현재 승자(방금 낸 사람)에게 — 단 용 싱글이면 증정 후 종료
+    // 진행 중 트릭은 현재 승자(방금 낸 사람)에게 — 단 용 싱글이면 상대에게 증정 후 종료.
+    // 이 시점엔 활동 중인 상대가 최대 1명이라 선택의 여지가 없음 → 자동 증정.
     if (this.currentCombo && this.currentCombo.type === 'single' && this.currentCombo.rank === 15) {
-      this.phase = 'dragon';
-      this.dragonChooser = s;
-      this._pendingRoundEnd = true;
-      return okRes();
+      var dOpps = [(s + 1) % 4, (s + 3) % 4];
+      var dSelf = this;
+      var dAct = dOpps.filter(function (o) { return dSelf.finished.indexOf(o) < 0; });
+      var dTo = dAct.length === 1 ? dAct[0] : dOpps[0]; // 둘 다 완주면 같은 팀이라 어느 쪽이든 동일
+      this.tricksWon[dTo] = this.tricksWon[dTo].concat(this.trickPile);
+      this.lastAction = { seat: s, kind: 'dragon_give', toSeat: dTo, auto: true };
+      this.trickPile = []; this.trick = []; this.currentCombo = null;
+      return this._endRound({});
     }
     if (this.lastPlayerSeat >= 0) {
       this.tricksWon[this.lastPlayerSeat] = this.tricksWon[this.lastPlayerSeat].concat(this.trickPile);
@@ -558,9 +563,20 @@ Game.prototype._advanceTurn = function (from) {
 Game.prototype._winTrick = function () {
   var w = this.lastPlayerSeat;
   if (this.currentCombo && this.currentCombo.type === 'single' && this.currentCombo.rank === 15) {
-    this.phase = 'dragon';
-    this.dragonChooser = w;
-    this.lastAction = { seat: w, kind: 'trick_won', dragon: true };
+    // 용 트릭: 상대 두 명이 다 살아있을 때만 선택. 한 명이 완주했으면 남은 상대에게 자동 증정.
+    var opps = [(w + 1) % 4, (w + 3) % 4];
+    var self = this;
+    var act = opps.filter(function (o) { return self.finished.indexOf(o) < 0; });
+    if (act.length >= 2) {
+      this.phase = 'dragon';
+      this.dragonChooser = w;
+      this.lastAction = { seat: w, kind: 'trick_won', dragon: true };
+      return;
+    }
+    var to = act.length === 1 ? act[0] : opps[0]; // 둘 다 완주면 어느 쪽이든 같은 팀
+    this.tricksWon[to] = this.tricksWon[to].concat(this.trickPile);
+    this.lastAction = { seat: w, kind: 'dragon_give', toSeat: to, auto: true };
+    this._afterTrick(w);
     return;
   }
   this.tricksWon[w] = this.tricksWon[w].concat(this.trickPile);

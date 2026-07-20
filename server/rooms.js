@@ -229,6 +229,9 @@ function leaveRoom(player, reason, notify) {
   if (room.game) {
     room.seats[seat] = makeBot(seat, room);
     room.seats[seat].name = '봇(' + player.name + ')';
+    // 이어받기는 세션 토큰으로만 — 이름은 표시용일 뿐 좌석 권리가 아님(스푸핑 방지)
+    room.seats[seat].origToken = player.token;
+    if (reason === 'kicked') room.seats[seat].kicked = true;
   } else {
     room.seats[seat] = null;
   }
@@ -347,7 +350,8 @@ function handle(player, a) {
         code: code, version: 0, game: null, hostSeat: 0,
         seats: [player, null, null, null],
         createdAt: now(), lastActivity: now(),
-        botTimer: null, botSeat: null, botDeadline: null
+        botTimer: null, botSeat: null, botDeadline: null,
+        banned: [] // 강퇴된 세션 토큰 — 재입장 차단
       };
       player.roomCode = code;
       player.seat = 0;
@@ -365,6 +369,7 @@ function handle(player, a) {
           host: (r2.seats[r2.hostSeat] || {}).name || '?',
           occupied: r2.seats.filter(Boolean).length,
           humans: humansIn(r2).length,
+          bots: r2.seats.filter(function (p) { return p && p.isBot; }).length,
           inGame: !!r2.game,
           target: r2.targetScore || null
         });
@@ -380,7 +385,34 @@ function handle(player, a) {
       if (!r2) return ackOf(a, null, err('ROOM_NOT_FOUND', '방을 찾을 수 없습니다: ' + code2));
       if (room && room !== r2) leaveRoom(player, 'left', false);
       if (player.roomCode === code2) { broadcast(r2); return ackOf(a, r2, null); }
-      if (r2.game) return ackOf(a, null, err('GAME_IN_PROGRESS', '게임이 진행 중인 방입니다'));
+      if (r2.banned && r2.banned.indexOf(player.token) >= 0) {
+        return ackOf(a, null, err('KICKED', '이 방에서 강퇴되어 다시 들어갈 수 없습니다'));
+      }
+      if (r2.game) {
+        // 게임 중 복귀: 봇이 대신하는 자리를 이어받음(팅김·실수 퇴장 복구).
+        // 우선순위: 내 세션 토큰으로 전환된 자리(본인 확인) > 일반 봇 > 타인의 전환 자리.
+        // 이름 일치는 좌석 권리가 아님 — 닉네임 스푸핑으로 남의 자리·손패를 탈취하는 것 방지.
+        if (a.name) player.name = sanitizeName(a.name);
+        var mySeat2 = -1, plainBot2 = -1, anyBot2 = -1;
+        for (var b2 = 0; b2 < 4; b2++) {
+          var occ2 = r2.seats[b2];
+          if (occ2 && occ2.isBot) {
+            if (anyBot2 < 0) anyBot2 = b2;
+            if (plainBot2 < 0 && !occ2.origToken) plainBot2 = b2;
+            if (occ2.origToken && occ2.origToken === player.token) { mySeat2 = b2; break; }
+          }
+        }
+        var take2 = mySeat2 >= 0 ? mySeat2 : (plainBot2 >= 0 ? plainBot2 : anyBot2);
+        if (take2 < 0) return ackOf(a, null, err('GAME_IN_PROGRESS', '게임 중이며 이어받을 봇 자리가 없습니다'));
+        r2.seats[take2] = player;
+        player.roomCode = code2;
+        player.seat = take2;
+        fixHost(r2);
+        r2.lastActivity = now();
+        scheduleBots(r2);
+        broadcast(r2);
+        return ackOf(a, r2, null);
+      }
       var free = -1;
       for (var s = 0; s < 4; s++) if (!r2.seats[s]) { free = s; break; }
       if (free < 0) return ackOf(a, null, err('ROOM_FULL', '방이 가득 찼습니다'));
@@ -440,6 +472,9 @@ function handle(player, a) {
       var ks = a.seat | 0;
       var kp = room.seats[ks];
       if (!kp || kp.isBot || kp === player) return ackOf(a, room, err('BAD_REQUEST', '강퇴 대상이 아닙니다'));
+      room.banned = room.banned || [];
+      if (room.banned.indexOf(kp.token) < 0) room.banned.push(kp.token);
+      if (room.banned.length > 16) room.banned.shift();
       leaveRoom(kp, 'kicked', true);
       return ackOf(a, rooms.get(room.code) ? room : null, null);
     }

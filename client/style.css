@@ -436,6 +436,13 @@ body.office .turnBanner { animation: none; } /* 엑셀 화면에서 깜빡이면
 body.office .hand .card.wishhi { box-shadow: inset 0 0 0 2px #217346; }
 body.office .play.win .card { box-shadow: inset 0 0 0 1px #217346; }
 
+/* ---------- 반투명(고스트) 모드 — ◐ 버튼 순환: 끔→연하게→아주 연하게 ----------
+   화면 내용만 흐리게 하고 엑셀 위장 크롬(.xl)은 그대로 둬서 멀리서 보면 빈 시트처럼 보임.
+   opacity는 fixed 모달 위치에 영향 없음(transform과 달리 containing block을 만들지 않음) */
+body.ghost1 #app > *:not(.xl), body.ghost2 #app > *:not(.xl) { transition: opacity .25s; }
+body.ghost1 #app > *:not(.xl) { opacity: .5; }
+body.ghost2 #app > *:not(.xl) { opacity: .22; }
+
 /* ---------- 작은 화면/큰 화면 보정 ---------- */
 @media (min-width: 600px) {
   .card { width: 60px; height: 86px; }

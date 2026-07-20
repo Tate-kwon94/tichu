@@ -224,6 +224,59 @@ function runFixtures() {
   eq(g9.lastPlayerSeat, 2, '폭탄자가 현재 승자');
   applyErr(g9, { type: 'play_cards', seat: 0, cards: ['S2'] }, 'NOT_YOUR_TURN', '차례 밖 일반 카드 불가');
 
+  // ---- 개 1:1: 파트너와 그 다음 순번까지 완주 → 자기 턴 복귀 ----
+  var g12 = scenario({
+    hands: [['DG', 'S2'], ['H3', 'H4'], [], []],
+    finished: [3, 2], firstOutSeat: 3, turnSeat: 0, leaderSeat: 0
+  });
+  applyOk(g12, { type: 'play_cards', seat: 0, cards: ['DG'] }, '개 1:1 플레이');
+  eq(g12.turnSeat, 0, '개 1:1(파트너·좌상대 완주): 내 턴으로 복귀');
+
+  // ---- 개 1:1 다른 구성: 파트너의 다음 순번(활동 중)에게 ----
+  var g13 = scenario({
+    hands: [['DG', 'S2'], [], [], ['D8', 'D9']],
+    finished: [1, 2], firstOutSeat: 1, turnSeat: 0, leaderSeat: 0
+  });
+  applyOk(g13, { type: 'play_cards', seat: 0, cards: ['DG'] }, '개 1:1 플레이(구성B)');
+  eq(g13.turnSeat, 3, '개 1:1(파트너·우상대 완주): 파트너 다음 순번에게');
+
+  // ---- 용 트릭 자동 증정: 상대 1명 완주 시 남은 상대에게(선택창 없음) ----
+  var g14 = scenario({
+    hands: [['DR', 'S2'], [], ['C5', 'C6'], ['D8', 'D9']],
+    finished: [1], firstOutSeat: 1, turnSeat: 0, leaderSeat: 0
+  });
+  applyOk(g14, { type: 'play_cards', seat: 0, cards: ['DR'] }, '용 플레이(상대 1명 완주)');
+  applyOk(g14, { type: 'pass_turn', seat: 2 }, '패스');
+  applyOk(g14, { type: 'pass_turn', seat: 3 }, '패스');
+  eq(g14.phase, 'play', '용 자동 증정: 증정 단계 건너뜀');
+  truthy(g14.tricksWon[3].indexOf('DR') >= 0, '용 트릭이 남은 상대에게 자동으로');
+  eq(g14.lastAction.kind, 'dragon_give', '자동 증정 기록');
+  truthy(g14.lastAction.auto, '자동 증정 플래그');
+  eq(g14.turnSeat, 0, '선은 승자 유지');
+
+  // ---- 용으로 3번째 완주(라운드 종료): 증정 단계 없이 자동 증정 후 종료 ----
+  var g15 = scenario({
+    hands: [['DR'], [], [], ['D8', 'D9']],
+    finished: [1, 2], firstOutSeat: 1, turnSeat: 0, leaderSeat: 0
+  });
+  applyOk(g15, { type: 'play_cards', seat: 0, cards: ['DR'] }, '용으로 완주');
+  eq(g15.phase, 'roundEnd', '용 완주: 증정 대기 없이 라운드 종료');
+  eq(g15.dragonChooser, null, '증정자 없음(자동)');
+  truthy(g15.roundSummary, '라운드 결과 생성');
+
+  // ---- 소원 지속: 아무도 이행 못 하고 트릭이 끝나도 소원 유지 ----
+  var g16 = scenario({
+    hands: [['MJ', 'S2', 'H3', 'D4', 'C5', 'S9'], ['H6', 'H7'], ['C6', 'C7'], ['D6', 'D7']],
+    turnSeat: 0, leaderSeat: 0
+  });
+  applyOk(g16, { type: 'play_cards', seat: 0, cards: ['MJ', 'S2', 'H3', 'D4', 'C5'], wish: 13 }, '1 스트레이트+소원 K');
+  eq(g16.wish, 13, '소원 등록');
+  applyOk(g16, { type: 'pass_turn', seat: 1 }, '이행 불가 → 패스 허용');
+  applyOk(g16, { type: 'pass_turn', seat: 2 }, '패스');
+  applyOk(g16, { type: 'pass_turn', seat: 3 }, '패스');
+  eq(g16.turnSeat, 0, '트릭 승자 재리드');
+  eq(g16.wish, 13, '트릭이 끝나도 소원 유지');
+
   // ---- 직렬화 왕복 ----
   var g10 = new C.Game({ seed: 7 });
   var j = g10.toJSON();
