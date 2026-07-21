@@ -414,6 +414,8 @@ return {
   botPlay: botPlay,
   botDecide: botDecide,
   strength: strength,
-  hasBomb: hasBomb
+  hasBomb: hasBomb,
+  determinize: determinize, // 하이브리드(신경망+탐색) 봇이 재사용 — 교환 정보 고정 포함
+  cloneGame: cloneGame
 };
 }));

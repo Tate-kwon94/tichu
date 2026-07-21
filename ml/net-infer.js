@@ -114,7 +114,8 @@ function load(jsonPath) {
     W[k] = new Float32Array(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
   });
   var b1 = new Float32Array(512), b2 = new Float32Array(256), ba = new Float32Array(128),
-      h1 = new Float32Array(256), ho = new Float32Array(1);
+      h1 = new Float32Array(256), ho = new Float32Array(1),
+      v1 = new Float32Array(64), vo = new Float32Array(1);
   function stateEmb(sv) {
     linear(W['se.0.weight'], W['se.0.bias'], sv, b1); relu(b1);
     linear(W['se.2.weight'], W['se.2.bias'], b1, b2); relu(b2);
@@ -131,6 +132,13 @@ function load(jsonPath) {
   return {
     encState: encState,
     encAction: encAction,
+    // 상태 가치 V(s) — 학습된 값헤드 (라운드 점수차/200 스케일)
+    valueRecord: function (r) {
+      var z = stateEmb(encState(r));
+      linear(W['vhead.0.weight'], W['vhead.0.bias'], z, v1); relu(v1);
+      linear(W['vhead.2.weight'], W['vhead.2.bias'], v1, vo);
+      return vo[0];
+    },
     // record 기반: 후보 중 최고 점수 인덱스
     pickRecord: function (r) {
       var z = stateEmb(encState(r)).slice(0);
