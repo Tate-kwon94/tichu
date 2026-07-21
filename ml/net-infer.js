@@ -141,6 +141,19 @@ function load(jsonPath) {
       }
       return best;
     },
+    // 후보별 소프트맥스 확률 (PPO 행동확률 기록·샘플링용)
+    probsRecord: function (r) {
+      var z = stateEmb(encState(r)).slice(0);
+      var logits = [], mx = -Infinity, i;
+      for (i = 0; i < r.cands.length; i++) {
+        var s = score(z, encAction(r, r.cands[i]));
+        logits.push(s); if (s > mx) mx = s;
+      }
+      var sum = 0, p = [];
+      for (i = 0; i < logits.length; i++) { p.push(Math.exp(logits[i] - mx)); sum += p[i]; }
+      for (i = 0; i < p.length; i++) p[i] /= sum;
+      return p;
+    },
     // 게임 상태에서 직접 (gen-teacher record()와 동일 규칙으로 조립). hist는 호출측이 유지
     makeRecord: function (g, seat, cands, hist) {
       var inHand = {};
