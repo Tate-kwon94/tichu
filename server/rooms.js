@@ -484,7 +484,8 @@ function handle(player, a) {
       for (var f = 0; f < 4; f++) if (!room.seats[f]) room.seats[f] = makeBot(f, room);
       var ts = (a.targetScore === 300 || a.targetScore === 500 || a.targetScore === 1000) ? a.targetScore : 1000;
       room.targetScore = ts;
-      // 온라인은 쉬움/보통/고수까지(고수 탐색은 180ms 시간컷으로 서버 안전). 악마(상대 패 열람)는 사람에게 불공정 → 제외
+      // 온라인은 쉬움/보통/고수까지. 고수 탐색은 950ms 시간컷 — 동시 1게임 수준 트래픽 전제로 상향
+      // (v15: 고속 복제+교환정보 결정화+마진 탈락으로 강화). 악마(상대 패 열람)는 사람에게 불공정 → 제외
       room.botLevel = ['easy', 'normal', 'hard'].indexOf(a.botLevel) >= 0 ? a.botLevel : 'normal';
       room.game = new C.Game({ targetScore: ts });
       room.lastActivity = now();

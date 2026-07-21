@@ -767,6 +767,27 @@ Game.prototype.toJSON = function () {
   return JSON.parse(JSON.stringify(j));
 };
 
+// 탐색(봇)용 고속 복제 — toJSON/fromJSON의 JSON 문자열 왕복 2회를 피함 (동작 동일)
+function deepCopy(v) {
+  if (v === null || typeof v !== 'object') return v;
+  if (Array.isArray(v)) {
+    var a = new Array(v.length);
+    for (var i = 0; i < v.length; i++) a[i] = deepCopy(v[i]);
+    return a;
+  }
+  var o = {};
+  for (var k in v) o[k] = deepCopy(v[k]);
+  return o;
+}
+Game.prototype.clone = function () {
+  var g = Object.create(Game.prototype);
+  g.rng = makeRng(0);
+  g.rng.s = this.rng.s >>> 0;
+  for (var i = 0; i < FIELDS.length; i++) g[FIELDS[i]] = deepCopy(this[FIELDS[i]]);
+  if (!g.history) g.history = [];
+  return g;
+};
+
 Game.fromJSON = function (j) {
   var c = JSON.parse(JSON.stringify(j));
   var g = Object.create(Game.prototype);

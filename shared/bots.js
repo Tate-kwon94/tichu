@@ -272,15 +272,30 @@ function botPlayEasy(game, seat) {
 }
 
 // ---------- 탐색(몬테카를로) — 고수/악마 난이도 ----------
-function cloneGame(game) { return C.Game.fromJSON(game.toJSON()); }
+function cloneGame(game) { return game.clone ? game.clone() : C.Game.fromJSON(game.toJSON()); }
 // 미관측 카드를 상대 손패 수에 맞춰 무작위 재분배(결정화)
+// 확정 정보 활용: 내가 교환으로 건넨 카드는 (아직 안 나왔다면) 받은 사람 손에 반드시 있음
 function determinize(game, seat) {
   var g = cloneGame(game);
   var others = [], pool = [];
   for (var s = 0; s < 4; s++) if (s !== seat) { others.push(s); pool = pool.concat(g.hands[s]); }
+  var pinned = {};
+  var gave = game.exchangeGive && game.exchangeGive[seat];
+  if (gave) {
+    for (var q in gave) {
+      var to = +q, card = gave[q];
+      if (to === seat) continue;
+      var pi = pool.indexOf(card);
+      if (pi >= 0) { pool.splice(pi, 1); (pinned[to] = pinned[to] || []).push(card); }
+    }
+  }
   for (var i = pool.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = pool[i]; pool[i] = pool[j]; pool[j] = t; }
   var k = 0;
-  for (var o = 0; o < others.length; o++) { var cnt = g.hands[others[o]].length; g.hands[others[o]] = pool.slice(k, k + cnt); k += cnt; }
+  for (var o = 0; o < others.length; o++) {
+    var os = others[o], pin = pinned[os] || [];
+    var cnt = g.hands[os].length - pin.length;
+    g.hands[os] = pin.concat(pool.slice(k, k + cnt)); k += cnt;
+  }
   return g;
 }
 // 비종료 상태의 대략 평가: 지금까지 딴 점수차 + 손패 적을수록(완주 임박) 가점
@@ -306,6 +321,7 @@ function playout(g, myTeam, deadline) {
   return myTeam === 0 ? (d.teamA - d.teamB) : (d.teamB - d.teamA);
 }
 // 후보 수(낼 수 + 패스)를 N회 플레이아웃해 평균 점수가 가장 좋은 수 선택. 시간예산 budgetMs.
+// 순차 탈락: 초반 몇 회로 하위 후보를 걸러내고 남은 예산을 유력 후보에 집중 (같은 예산에 표본 ↑)
 function searchMove(game, seat, opts) {
   var gm = genMoves(game.hands[seat], game.currentCombo, game.wish);
   var moves = gm.moves;
@@ -315,11 +331,14 @@ function searchMove(game, seat, opts) {
   if (game.currentCombo && !gm.forced) cands.push({ pass: true }); // 따라갈 땐 패스도 후보
   var myTeam = teamOf(seat);
   var totals = cands.map(function () { return 0; }), counts = cands.map(function () { return 0; });
+  var active = cands.map(function (_, i) { return i; });
   var t0 = Date.now(), deadline = t0 + opts.budgetMs; // 절대 한도 — 플레이아웃 내부에서도 체크
+  function avgOf(i) { return counts[i] ? totals[i] / counts[i] : -Infinity; }
   for (var rep = 0; rep < opts.samples; rep++) {
     if (Date.now() > deadline) break;
     var det = opts.perfect ? cloneGame(game) : determinize(game, seat);
-    for (var ci = 0; ci < cands.length; ci++) {
+    for (var ai = 0; ai < active.length; ai++) {
+      var ci = active[ai];
       var sim = cloneGame(det), act;
       if (cands[ci].pass) act = { type: 'pass_turn', seat: seat };
       else act = { type: 'play_cards', seat: seat, cards: cands[ci].play.cards };
@@ -327,9 +346,24 @@ function searchMove(game, seat, opts) {
       totals[ci] += playout(sim, myTeam, deadline); counts[ci]++;
       if (Date.now() > deadline) break;
     }
+    // 탈락 지점: 6·14·30회 표본 후 "선두와 명백한 격차"인 후보만 제거 — 마진을 점차 좁힘.
+    // (하위 절반 일괄 탈락은 티츄 점수의 큰 분산 때문에 진짜 좋은 수를 초반 소음으로 자를 위험)
+    if ((rep === 5 || rep === 13 || rep === 29) && active.length > 3) {
+      var margin = rep === 5 ? 70 : rep === 13 ? 45 : 28;
+      var lead = -Infinity;
+      for (var li = 0; li < active.length; li++) lead = Math.max(lead, avgOf(active[li]));
+      var kept = active.filter(function (i) { return avgOf(i) >= lead - margin; });
+      if (kept.length >= 2) active = kept;
+    }
   }
+  // 최종 선택은 생존 후보 중에서 — 탈락 후보의 적은 표본 평균이 요행으로 이기는 것 방지
   var best = null, bestAvg = -Infinity;
-  for (var c = 0; c < cands.length; c++) { if (!counts[c]) continue; var avg = totals[c] / counts[c]; if (avg > bestAvg) { bestAvg = avg; best = cands[c]; } }
+  for (var c2 = 0; c2 < active.length; c2++) {
+    var ci2 = active[c2];
+    if (!counts[ci2]) continue;
+    var avg2 = totals[ci2] / counts[ci2];
+    if (avg2 > bestAvg) { bestAvg = avg2; best = cands[ci2]; }
+  }
   return best || { play: botPlay(game, seat) || moves[0] };
 }
 
@@ -349,10 +383,14 @@ function botDecide(game, seat, level) {
   }
   if (phase === 'play' && game.turnSeat === seat && game.finished.indexOf(seat) < 0) {
     var mv;
-    // 고수: 시간 컷(180ms 절대 한도)이 시뮬 도중에도 걸려 서버를 멈추지 않음.
-    //       빠른 기기(혼자 연습)는 샘플 많이→강함, 느린 무료서버는 샘플 적게→안전. 자동 조절.
+    // 고수: 시간 컷이 시뮬 도중에도 걸려 서버를 멈추지 않음. 트래픽이 적어(동시 1게임 수준)
+    //       예산을 950ms로 상향 — 빠른 기기는 표본 많이, 느린 서버는 적게. 자동 조절.
+    //       __TICHU_HARD 전역으로 표본·예산 오버라이드 가능(측정·튜닝용).
     if (level === 'devil') mv = searchMove(game, seat, { perfect: true, samples: 1, budgetMs: 400 });
-    else if (level === 'hard') mv = searchMove(game, seat, { perfect: false, samples: 60, budgetMs: 300 });
+    else if (level === 'hard') {
+      var hc = (typeof globalThis !== 'undefined' && globalThis.__TICHU_HARD) || { samples: 240, budgetMs: 950 };
+      mv = searchMove(game, seat, { perfect: false, samples: hc.samples, budgetMs: hc.budgetMs });
+    }
     else if (easy) { var e = botPlayEasy(game, seat); mv = e ? { play: e } : { pass: true }; }
     else { var p = botPlay(game, seat); mv = p ? { play: p } : { pass: true }; }
     if (mv.pass || !mv.play) return { type: 'pass_turn', seat: seat };
