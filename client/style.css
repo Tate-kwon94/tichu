@@ -436,6 +436,37 @@ body.office .turnBanner { animation: none; } /* 엑셀 화면에서 깜빡이면
 body.office .hand .card.wishhi { box-shadow: inset 0 0 0 2px #217346; }
 body.office .play.win .card { box-shadow: inset 0 0 0 1px #217346; }
 
+/* ---------- 위장 카드 시안(셀형): xl1=무늬 xl2=문자코드 xl3=숫자만 ----------
+   카드를 시트 셀처럼 납작한 그리드로 — 멀리서 보면 데이터 행으로 보이게.
+   fitHand()는 셀형에서 건너뜀(겹침 대신 줄바꿈) — 기본 negative margin은 여기서 무효화 */
+body.office.xl1 .card, body.office.xl2 .card, body.office.xl3 .card {
+  width: auto; min-width: 40px; height: 27px; border-radius: 0;
+  background: #fff; border: 1px solid #d4d4d4; box-shadow: none;
+  display: inline-flex; align-items: center; justify-content: flex-start;
+  padding: 0 7px; margin: -1px 0 0 -1px !important;
+}
+body.office.xl3 .card { justify-content: flex-end; } /* 숫자만: 엑셀처럼 우측 정렬 */
+body.office.xl1 .hand, body.office.xl2 .hand, body.office.xl3 .hand {
+  flex-wrap: wrap; justify-content: flex-start; align-content: flex-start;
+  min-height: 0; padding: 8px 10px 6px;
+}
+body.office.xl1 .card .cr, body.office.xl2 .card .cr, body.office.xl3 .card .cr {
+  position: static; font-size: 13px; font-weight: 600;
+}
+body.office.xl2 .card .cr .su { font-size: 11px; opacity: .75; margin-left: 1px; }
+body.office.xl1 .hand .card.sel, body.office.xl2 .hand .card.sel, body.office.xl3 .hand .card.sel,
+body.office.xl1 .hand .card.give, body.office.xl2 .hand .card.give, body.office.xl3 .hand .card.give {
+  transform: none;
+}
+body.office.xl1 .trickCards .card, body.office.xl2 .trickCards .card, body.office.xl3 .trickCards .card,
+body.office.xl1 .play .card, body.office.xl2 .play .card, body.office.xl3 .play .card,
+body.office.xl1 .grandCards .card, body.office.xl2 .grandCards .card, body.office.xl3 .grandCards .card {
+  margin-left: -1px !important;
+}
+body.office.xl1 .card.sp .cr, body.office.xl2 .card.sp .cr, body.office.xl3 .card.sp .cr {
+  font-size: 11px;
+}
+
 /* ---------- 반투명(고스트) 모드 — ◐ 버튼 순환: 끔→연하게→아주 연하게 ----------
    화면 내용만 흐리게 하고 엑셀 위장 크롬(.xl)은 그대로 둬서 멀리서 보면 빈 시트처럼 보임.
    opacity는 fixed 모달 위치에 영향 없음(transform과 달리 containing block을 만들지 않음) */

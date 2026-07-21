@@ -488,8 +488,14 @@ Game.prototype._playCards = function (s, ids, wishChoice) {
     this.tricksWon[partnerOf(s)] = this.tricksWon[partnerOf(s)].concat(pile);
     var end1 = this._checkFinish(s);
     if (end1) return end1;
-    var t1 = partnerOf(s);
-    while (this.finished.indexOf(t1) >= 0) t1 = (t1 + 1) % 4;
+    var t1;
+    if (this.finished.indexOf(s) < 0 && 4 - this.finished.length <= 2) {
+      t1 = s; // 1:1 상황: 개를 내면 선이 자기에게 돌아옴 (개로 완주한 경우는 제외)
+    } else {
+      t1 = partnerOf(s);
+      while (this.finished.indexOf(t1) >= 0) t1 = (t1 + 1) % 4;
+    }
+    this.lastAction.toSeat = t1;
     this.leaderSeat = this.turnSeat = t1;
     return okRes();
   }

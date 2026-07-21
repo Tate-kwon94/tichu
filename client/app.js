@@ -20,7 +20,11 @@ var state = {
   helpFromModal: false,  // 모달 위에 띄운 도움말인지 (닫으면 원래 모달로)
   replaced: false,
   office: false,         // 엑셀 위장 모드
+  xlStyle: '',           // 위장 카드 시안: ''=기존 카드형, '1'=셀+무늬, '2'=셀+문자코드, '3'=셀+숫자만
   ghost: 0,              // 반투명 모드 0=끔 1=연하게 2=아주 연하게 (위장과 병행 가능)
+  composing: false,      // 한글 IME 조합 중 (재렌더가 조합을 끊지 않게)
+  renderQueued: false,   // 조합·타이핑 중 미뤄둔 렌더
+  lastTypeAt: 0,         // 마지막 키 입력 시각 — 조합 이벤트가 불안정한 IME 안전망
   tichuArmed: 0,         // 티츄 2탭 확인: 1차 탭 시각(ms)
   lobbyTarget: 1000,     // 로비에서 고른 목표 점수
   showHistory: false,    // 점수 히스토리 패널
@@ -76,7 +80,8 @@ function selectedIds() {
 
 // ---------- 카드 렌더 ----------
 var SUIT_COLOR = { S: '#23262e', H: '#cf3434', D: '#2a62c4', C: '#1c7e46' };
-var SUIT_COLOR_OFFICE = { S: '#222222', H: '#c00000', D: '#c00000', C: '#222222' };
+// 위장 모드도 4색 구분 — 엑셀 조건부 서식 색감(검정/빨강/파랑/초록)이라 시트 위에서 자연스러움
+var SUIT_COLOR_OFFICE = { S: '#222222', H: '#c00000', D: '#2a62c4', C: '#217346' };
 var SP_INFO = { MJ: ['1', '🐦', 'spMJ', '마작'], DG: ['', '🐶', 'spDG', '개'], PH: ['', '🔥', 'spPH', '불사조'], DR: ['', '🐉', 'spDR', '용'] };
 var SP_OFFICE = { MJ: '1', DG: 'DOG', PH: 'PHX', DR: 'DRG' };
 // 특수 카드 일러스트 (인라인 SVG — 외부 리소스 0 유지)
@@ -140,6 +145,14 @@ function cardHtml(id, cls, attrs) {
   }
   var r = C.rankOf(id), su = id[0];
   var col = (state.office ? SUIT_COLOR_OFFICE : SUIT_COLOR)[su];
+  if (state.office && state.xlStyle === '3') { // 셀+숫자만 — 무늬는 색으로만 구분
+    return '<div class="card ' + cls + '" data-card="' + id + '" ' + attrs + ' style="color:' + col + '">' +
+      '<span class="cr">' + C.rankLabel(r) + '</span></div>';
+  }
+  if (state.office && state.xlStyle === '2') { // 셀+문자코드 — 무늬를 S/H/D/C 글자로
+    return '<div class="card ' + cls + '" data-card="' + id + '" ' + attrs + ' style="color:' + col + '">' +
+      '<span class="cr">' + C.rankLabel(r) + '<span class="su">' + su + '</span></span></div>';
+  }
   return '<div class="card ' + cls + '" data-card="' + id + '" ' + attrs + ' style="color:' + col + '">' +
     '<span class="cr">' + C.rankLabel(r) + '<span class="su">' + C.SUIT_SYMBOL[su] + '</span></span>' +
     '<span class="cp">' + C.SUIT_SYMBOL[su] + '</span>' +
@@ -334,6 +347,51 @@ function reconcile() {
 
 // ---------- 렌더 ----------
 var lastMyTurn = false;
+var renderFlushTimer = null;
+function typingNow() { // 텍스트 입력창에 포커스 + 최근 350ms 내 키 입력
+  var ae = document.activeElement;
+  if (!(ae && (ae.id === 'chatIn' || ae.id === 'nick' || ae.id === 'code'))) return false;
+  return Date.now() - state.lastTypeAt < 350;
+}
+// 조합·타이핑 중 보호할 입력창 — innerHTML 전체 교체가 이 노드를 갈아치우면 IME 조합이 끊김
+function editingEl() {
+  if (!(state.composing || typingNow())) return null;
+  var ae = document.activeElement;
+  if (ae && (ae.id === 'chatIn' || ae.id === 'nick' || ae.id === 'code') && appEl.contains(ae)) return ae;
+  return null;
+}
+// 부분 교체 사전 검사: keepEl까지의 조상 체인에서 자식 수·태그가 새 렌더와 일치해야 함
+// (채팅 패널 개폐·모달 등장 등 구조 변화 시 false → 호출부가 유예 폴백)
+function morphOk(oldP, newP, keepEl) {
+  if (oldP.childNodes.length !== newP.childNodes.length) return false;
+  var oc = oldP.childNodes;
+  for (var i = 0; i < oc.length; i++) {
+    var o = oc[i];
+    if (o.nodeType === 1 && o.contains(keepEl)) { // contains는 자기 자신 포함
+      if (o === keepEl) return true;
+      var n = newP.childNodes[i];
+      if (!(n && n.nodeType === 1 && o.nodeName === n.nodeName)) return false;
+      return morphOk(o, n, keepEl);
+    }
+  }
+  return false;
+}
+// 부분 교체 실행: keepEl(입력창)만 그대로 두고 형제 노드는 새 렌더 결과로 통째 교체
+// → 조합을 안 끊으면서 채팅 목록·게임 화면은 실시간 갱신
+function morphApply(oldP, newP, keepEl) {
+  var oArr = Array.prototype.slice.call(oldP.childNodes);
+  var nArr = Array.prototype.slice.call(newP.childNodes);
+  for (var i = 0; i < oArr.length; i++) {
+    var o = oArr[i], n = nArr[i];
+    if (o.nodeType === 1 && o.contains(keepEl)) {
+      if (o === keepEl) continue; // 입력창 자체는 절대 건드리지 않음
+      o.className = (n.nodeType === 1 && n.className) || '';
+      morphApply(o, n, keepEl);
+    } else {
+      oldP.replaceChild(n, o);
+    }
+  }
+}
 function render() {
   // 내 차례가 막 됐는데 채팅이 가리고 있으면(입력 중이 아닐 때) 자동으로 닫기
   var mt = myTurn();
@@ -354,11 +412,46 @@ function render() {
     prevChatTop = oldList.scrollTop;
   }
   document.body.classList.toggle('office', !!state.office);
+  document.body.classList.toggle('xl1', !!state.office && state.xlStyle === '1');
+  document.body.classList.toggle('xl2', !!state.office && state.xlStyle === '2');
+  document.body.classList.toggle('xl3', !!state.office && state.xlStyle === '3');
   document.body.classList.toggle('ghost1', state.ghost === 1);
   document.body.classList.toggle('ghost2', state.ghost === 2);
   applyDisguise();
   var inner = state.screen === 'home' ? renderHome() : renderGame();
   if (state.office) inner = officeTop() + '<div class="officeBody">' + inner + '</div>' + officeBottom();
+  // 한글 조합·타이핑 중: 입력창 노드만 남기고 나머지 영역을 부분 교체 — 채팅·게임은 실시간 갱신 유지
+  var editing = editingEl();
+  if (editing) {
+    var tmp = document.createElement('div');
+    tmp.innerHTML = inner;
+    if (morphOk(appEl, tmp, editing)) {
+      morphApply(appEl, tmp, editing);
+      renderConn();
+      fitHand();
+      var cl0 = $('#chatList');
+      if (cl0) cl0.scrollTop = stickChat ? cl0.scrollHeight : prevChatTop;
+      if (mt && !lastMyTurn && navigator.vibrate) { try { navigator.vibrate(30); } catch (e) {} }
+      lastMyTurn = mt;
+      return;
+    }
+    // 구조가 달라짐(모달·패널 개폐, 화면 전환 등) → 이번 렌더만 유예 후 재시도.
+    // 조합 중에도 반드시 타이머를 건다 — compositionend가 유실되는 변칙 IME에서
+    // 영구 멈춤 방지: 3초 이상 키 입력이 없으면 조합이 죽은 것으로 보고 강제 플러시.
+    state.renderQueued = true;
+    clearTimeout(renderFlushTimer);
+    renderFlushTimer = setTimeout(function retryFlush() {
+      if (!state.renderQueued) return;
+      if (state.composing && Date.now() - state.lastTypeAt < 3000) {
+        renderFlushTimer = setTimeout(retryFlush, 500); // 실제 조합 진행 중 — 대기
+        return;
+      }
+      state.composing = false;
+      state.renderQueued = false;
+      render();
+    }, 400);
+    return;
+  }
   appEl.innerHTML = inner;
   renderConn();
   fitHand();
@@ -387,6 +480,13 @@ function applyDisguise() {
   }
 }
 
+// 위장 카드 표시 버튼 — 위장 모드에서만 노출: 카드형→셀(무늬)→숫자 순환 (사용자 선택 반영)
+function xlStyleBtnHtml() {
+  if (!state.office) return '';
+  var lbl = state.xlStyle === '1' ? '셀' : state.xlStyle === '3' ? '숫자' : '카드';
+  return '<button class="btn small ghost" data-act="xl-style" title="위장 카드 표시">' + lbl + '</button>';
+}
+
 // 반투명 버튼 — 누를 때마다 끔→연하게→아주 연하게 순환
 function ghostBtnHtml() {
   var icon = state.ghost === 0 ? '◐' : state.ghost === 1 ? '◑' : '○';
@@ -410,6 +510,7 @@ function officeBottom() {
 // 손패가 화면 폭에 항상 다 들어오도록 겹침 간격을 카드 수에 맞춰 계산
 // (가운데 정렬 + 넘침 조합은 왼쪽 카드가 잘리고 스크롤도 닿지 않는 문제가 있음)
 function fitHand() {
+  if (state.office && state.xlStyle) return; // 셀형 시안은 겹침 없이 줄바꿈 배치
   var hand = appEl.querySelector('.hand');
   if (!hand) return;
   var cards = hand.querySelectorAll('.card');
@@ -448,6 +549,7 @@ function renderHome() {
     botLevelPicker(true) +
     '<div class="row"><button class="btn ghost grow" data-act="help-open">' + STR.rulesBtn + '</button>' +
     '<button class="btn ghost grow" data-act="office-toggle">' + (state.office ? '위장 끄기' : '▦ 위장') + '</button>' +
+    xlStyleBtnHtml() +
     ghostBtnHtml() + '</div>' +
     '<div class="connStatus"><span id="connTxt"></span></div>' +
   '</div>' + (state.help ? helpModal() : '');
@@ -580,6 +682,7 @@ function renderLobby() {
     '<span class="grow"></span>' +
     chatBtnHtml() +
     '<button class="btn small ghost" data-act="office-toggle" title="위장 모드">▦</button>' +
+    xlStyleBtnHtml() +
     ghostBtnHtml() +
     '<button class="btn small ghost" data-act="leave">' + STR.leave + '</button></div>' +
     '<div class="codeBig">' + esc(snap.code || '') + '</div>' +
@@ -610,6 +713,7 @@ function renderTable() {
     (snap.code ? '<span class="chip dim">' + esc(snap.code) + '</span>' : '') +
     chatBtnHtml() +
     '<button class="btn small ghost" data-act="office-toggle" title="위장 모드">▦</button>' +
+    xlStyleBtnHtml() +
     ghostBtnHtml() +
     '<button class="btn small ghost" data-act="help-open">?</button>' +
     '<button class="btn small ghost" data-act="leave">' + STR.leave + '</button>' +
@@ -698,7 +802,7 @@ function lastActionLine() {
     case 'tichu': return em('🔴 ') + nm + ' 스몰 티츄 선언!';
     case 'grand': return em('🔴 ') + nm + ' 라지 티츄 선언!';
     case 'grand_pass': return '';
-    case 'dog': return em('🐶 ') + nm + ' 개 — 파트너 턴으로';
+    case 'dog': return em('🐶 ') + nm + ' 개 — ' + (la.toSeat != null ? esc(seatName(la.toSeat)) + ' 턴으로' : '파트너 턴으로');
     case 'trick_won': return nm + ' 카드 가져감' + (la.dragon ? ' (용 — 증정 대기)' : '');
     case 'dragon_give': return em('🐉 ') + nm + ' → ' + esc(seatName(la.toSeat)) + ' 카드 증정' + (la.auto ? ' (남은 상대 자동)' : '');
     case 'exchange_done': return '교환 완료 — ' + esc(seatName(la.leader)) + ' 턴부터 (1 보유)';
@@ -1110,6 +1214,11 @@ function onClick(e) {
       try { localStorage.setItem('tichu.ghost', String(state.ghost)); } catch (e3) {}
       render();
       break;
+    case 'xl-style': // 카드형('') → 셀+무늬('1') → 숫자만('3') 순환 — 문자코드('2')는 미채택
+      state.xlStyle = state.xlStyle === '' ? '1' : state.xlStyle === '1' ? '3' : '';
+      try { localStorage.setItem('tichu.xlstyle', state.xlStyle); } catch (e4) {}
+      render();
+      break;
   }
 }
 
@@ -1119,18 +1228,32 @@ function init() {
   toastEl = $('#toast');
   appEl.addEventListener('click', onClick);
   appEl.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter' && e.target && e.target.id === 'chatIn') {
+    var tid = e.target && e.target.id;
+    if (tid === 'chatIn' || tid === 'nick' || tid === 'code') state.lastTypeAt = Date.now(); // keyCode 229 포함 모든 키
+    if (e.key === 'Enter' && tid === 'chatIn') {
       if (e.isComposing || e.keyCode === 229) return; // 한글 IME 조합 중 Enter 무시
       e.preventDefault();
       sendChat(e.target.value);
     }
   });
   appEl.addEventListener('input', function (e) {
-    if (e.target && e.target.id === 'chatIn') state.chatDraft = e.target.value; // 초안 보존
+    var tid = e.target && e.target.id;
+    if (tid === 'chatIn' || tid === 'nick' || tid === 'code') state.lastTypeAt = Date.now();
+    if (tid === 'chatIn') state.chatDraft = e.target.value; // 초안 보존
   });
+  // 한글 IME 조합 추적 — 조합 중 재렌더를 미뤄 자모 끊김 방지
+  function endCompose() {
+    if (!state.composing) return;
+    state.composing = false;
+    if (state.renderQueued) { state.renderQueued = false; render(); }
+  }
+  appEl.addEventListener('compositionstart', function () { state.composing = true; });
+  appEl.addEventListener('compositionend', endCompose);
+  appEl.addEventListener('focusout', endCompose); // 조합 중 포커스 이탈 등 예외 경로 안전망
   state.name = '';
   try { state.name = localStorage.getItem('tichu.name') || ''; } catch (e) {}
   try { state.office = localStorage.getItem('tichu.office') === '1'; } catch (e) {}
+  try { var xs = localStorage.getItem('tichu.xlstyle'); state.xlStyle = (xs === '1' || xs === '2' || xs === '3') ? xs : ''; } catch (e) {}
   try { var gh = parseInt(localStorage.getItem('tichu.ghost') || '0', 10); state.ghost = (gh === 1 || gh === 2) ? gh : 0; } catch (e) {}
   try { var bl = localStorage.getItem('tichu.botlevel'); state.botLevel = ['easy', 'normal', 'hard', 'devil'].indexOf(bl) >= 0 ? bl : 'normal'; } catch (e) {}
   state.urlRoom = (new URLSearchParams(location.search).get('room') || '').toUpperCase().slice(0, 4);

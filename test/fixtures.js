@@ -224,21 +224,37 @@ function runFixtures() {
   eq(g9.lastPlayerSeat, 2, '폭탄자가 현재 승자');
   applyErr(g9, { type: 'play_cards', seat: 0, cards: ['S2'] }, 'NOT_YOUR_TURN', '차례 밖 일반 카드 불가');
 
-  // ---- 개 1:1: 파트너와 그 다음 순번까지 완주 → 자기 턴 복귀 ----
+  // ---- 개 1:1: 어느 구성이든 자기 턴으로 복귀 ----
   var g12 = scenario({
     hands: [['DG', 'S2'], ['H3', 'H4'], [], []],
     finished: [3, 2], firstOutSeat: 3, turnSeat: 0, leaderSeat: 0
   });
   applyOk(g12, { type: 'play_cards', seat: 0, cards: ['DG'] }, '개 1:1 플레이');
-  eq(g12.turnSeat, 0, '개 1:1(파트너·좌상대 완주): 내 턴으로 복귀');
+  eq(g12.turnSeat, 0, '개 1:1(남은 상대=1번): 내 턴으로 복귀');
 
-  // ---- 개 1:1 다른 구성: 파트너의 다음 순번(활동 중)에게 ----
   var g13 = scenario({
     hands: [['DG', 'S2'], [], [], ['D8', 'D9']],
     finished: [1, 2], firstOutSeat: 1, turnSeat: 0, leaderSeat: 0
   });
   applyOk(g13, { type: 'play_cards', seat: 0, cards: ['DG'] }, '개 1:1 플레이(구성B)');
-  eq(g13.turnSeat, 3, '개 1:1(파트너·우상대 완주): 파트너 다음 순번에게');
+  eq(g13.turnSeat, 0, '개 1:1(남은 상대=3번): 내 턴으로 복귀');
+
+  // ---- 개 3인 활동(1:2): 파트너 완주 시 다음 활동자에게 (기존 규칙 유지) ----
+  var g13b = scenario({
+    hands: [['DG', 'S2'], ['H3', 'H4'], [], ['D8', 'D9']],
+    finished: [2], firstOutSeat: 2, turnSeat: 0, leaderSeat: 0
+  });
+  applyOk(g13b, { type: 'play_cards', seat: 0, cards: ['DG'] }, '개 플레이(3인 활동)');
+  eq(g13b.turnSeat, 3, '개 1:2(파트너만 완주): 파트너 다음 순번에게');
+
+  // ---- 개를 마지막 카드로 내고 완주: 1:1 규칙 미적용, 파트너에게 선 (턴 멈춤 방지) ----
+  var g13c = scenario({
+    hands: [['DG'], [], ['C5', 'C6'], ['D8', 'D9']],
+    finished: [1], firstOutSeat: 1, turnSeat: 0, leaderSeat: 0
+  });
+  applyOk(g13c, { type: 'play_cards', seat: 0, cards: ['DG'] }, '개로 완주');
+  eq(g13c.finished.indexOf(0) >= 0, true, '개로 완주 처리');
+  eq(g13c.turnSeat, 2, '개 완주: 활동 중인 파트너에게 선');
 
   // ---- 용 트릭 자동 증정: 상대 1명 완주 시 남은 상대에게(선택창 없음) ----
   var g14 = scenario({
