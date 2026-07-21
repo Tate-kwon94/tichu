@@ -15,7 +15,9 @@ var T_IDX = {};
 TYPES.forEach(function (t, i) { T_IDX[t] = i; });
 var RANK = { '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '10': 10, 'T': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14 };
 var SPECIAL = { MJ: 52, DG: 53, PH: 54, DR: 55 };
-var S_DIM = 56 * 5 + 4 + 4 + 8 + 5 + 12 + 5 + 1 + 14 + 3;
+var HIST_N = 12, HIST_F = 4 + TYPES.length + 2; // 17
+var S_BASE = 56 * 5 + 4 + 4 + 8 + 5 + 12 + 5 + 1 + 14 + 3; // 336
+var S_DIM = S_BASE + HIST_N * HIST_F; // 540
 var A_DIM = 56 + TYPES.length + 8;
 
 function cardIdx(id) {
@@ -63,6 +65,16 @@ function encState(r) {
   var op = seat % 2 === 0 ? r.sc[1] : r.sc[0];
   var tgt = Math.max(r.tgt || 500, 1);
   v[o] = my / tgt; v[o + 1] = op / tgt; v[o + 2] = (my - op) / tgt;
+  // 플레이 이력 — train_pilot.py와 동일: 시간순, 최신이 끝, 앞쪽 0 패딩
+  var hist = (r.hist || []).slice(-HIST_N);
+  var base = S_BASE + (HIST_N - hist.length) * HIST_F;
+  for (i = 0; i < hist.length; i++) {
+    var hh = hist[i], p = base + i * HIST_F;
+    v[p + rel(seat, hh.s)] = 1;
+    v[p + 4 + T_IDX[hh.t]] = 1;
+    v[p + 4 + 11] = Math.min(hh.r, 16) / 16;
+    v[p + 4 + 12] = hh.l / 14;
+  }
   return v;
 }
 function encAction(r, cand) {
@@ -129,11 +141,12 @@ function load(jsonPath) {
       }
       return best;
     },
-    // 게임 상태에서 직접 (gen-teacher record()와 동일 규칙으로 조립)
-    makeRecord: function (g, seat, cands) {
+    // 게임 상태에서 직접 (gen-teacher record()와 동일 규칙으로 조립). hist는 호출측이 유지
+    makeRecord: function (g, seat, cands, hist) {
       var inHand = {};
       for (var s = 0; s < 4; s++) g.hands[s].forEach(function (id) { inHand[id] = 1; });
       return {
+        hist: (hist || []).slice(-HIST_N),
         seat: seat, h: g.hands[seat],
         played: C.makeDeck().filter(function (id) { return !inHand[id]; }),
         cnt: [g.hands[0].length, g.hands[1].length, g.hands[2].length, g.hands[3].length],

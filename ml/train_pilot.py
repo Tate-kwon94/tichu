@@ -21,7 +21,10 @@ def card_idx(cid):
         return SPECIAL[cid]
     return SUITS.index(cid[0]) * 13 + (RANK[cid[1:]] - 2)
 
-S_DIM = 56 * 5 + 4 + 4 + 8 + 5 + 12 + 5 + 1 + 14 + 3   # = 336
+HIST_N = 12                                              # 최근 12수
+HIST_F = 4 + len(TYPES) + 2                              # 상대좌석4 + 타입11 + 랭크·장수 = 17
+S_BASE = 56 * 5 + 4 + 4 + 8 + 5 + 12 + 5 + 1 + 14 + 3   # = 336
+S_DIM = S_BASE + HIST_N * HIST_F                         # = 540
 A_DIM = 56 + len(TYPES) + 8                              # = 75
 
 def rel(seat, other):
@@ -72,6 +75,15 @@ def enc_state(r):
     my, op = (r["sc"][0], r["sc"][1]) if seat % 2 == 0 else (r["sc"][1], r["sc"][0])
     tgt = max(r.get("tgt", 500), 1)
     v[o] = my / tgt; v[o + 1] = op / tgt; v[o + 2] = (my - op) / tgt
+    # 플레이 이력 — 시간순, 최신이 맨 끝. 짧으면 앞쪽 0 패딩
+    hist = (r.get("hist") or [])[-HIST_N:]
+    base = S_BASE + (HIST_N - len(hist)) * HIST_F
+    for i, hh in enumerate(hist):
+        p = base + i * HIST_F
+        v[p + rel(seat, hh["s"])] = 1.0
+        v[p + 4 + T_IDX[hh["t"]]] = 1.0
+        v[p + 4 + 11] = min(hh["r"], 16) / 16.0
+        v[p + 4 + 12] = hh["l"] / 14.0
     return v
 
 def enc_action(r, cand):
@@ -176,27 +188,33 @@ def main():
     dev = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     print("device:", dev)
     t0 = time.time()
-    tr = load(args.train, args.cap)
-    va = load([args.val])
-    print(f"train {len(tr)} / val {len(va)} decisions ({time.time()-t0:.0f}s 로딩)")
+    va = load([args.val], cap=40000)
+    print(f"val {len(va)} decisions", flush=True)
 
     net = Net().to(dev)
     opt = torch.optim.Adam(net.parameters(), lr=1e-3)
     print("params:", sum(p.numel() for p in net.parameters()))
 
+    best = 0.0
     for ep in range(args.epochs):
         net.train(); tl = n = 0
-        for s, a, m, y, v in batches(tr, args.bs):
-            s, a, m, y, v = s.to(dev), a.to(dev), m.to(dev), y.to(dev), v.to(dev)
-            logit, val = net(s, a, m)
-            loss = nn.functional.cross_entropy(logit, y) + 0.25 * nn.functional.mse_loss(val, v)
-            opt.zero_grad(); loss.backward(); opt.step()
-            tl += loss.item() * len(y); n += len(y)
+        # 파일 단위 청크 로딩 — 8GB 램에서 50만+ 결정도 안전
+        for f in args.train:
+            data = load([f], args.cap)
+            for s, a, m, y, v in batches(data, args.bs):
+                s, a, m, y, v = s.to(dev), a.to(dev), m.to(dev), y.to(dev), v.to(dev)
+                logit, val = net(s, a, m)
+                loss = nn.functional.cross_entropy(logit, y) + 0.25 * nn.functional.mse_loss(val, v)
+                opt.zero_grad(); loss.backward(); opt.step()
+                tl += loss.item() * len(y); n += len(y)
+            del data
         acc = evaluate(net, va, dev)
-        print(f"epoch {ep+1}: loss {tl/n:.4f}  val top-1 {acc*100:.1f}%  ({time.time()-t0:.0f}s)")
+        star = ""
+        if acc > best:
+            best = acc; torch.save(net.state_dict(), args.out); star = " *저장"
+        print(f"epoch {ep+1}: loss {tl/n:.4f}  val top-1 {acc*100:.1f}%{star}  ({time.time()-t0:.0f}s)", flush=True)
 
-    torch.save(net.state_dict(), args.out)
-    print("saved:", args.out)
+    print(f"best val top-1 {best*100:.1f}%  saved: {args.out}")
 
 if __name__ == "__main__":
     main()

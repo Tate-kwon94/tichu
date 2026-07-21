@@ -25,8 +25,9 @@ function playedCards(g) {
   return C.makeDeck().filter(function (id) { return !inHand[id]; });
 }
 
-function record(g, seat, cands, pickIdx) {
+function record(g, seat, cands, pickIdx, hist) {
   return {
+    hist: hist.slice(-12), // 최근 12수: {s:좌석, t:타입, r:랭크, l:장수} (패스는 t:'pass')
     seat: seat,
     h: g.hands[seat].slice(),
     played: playedCards(g),
@@ -49,6 +50,7 @@ function record(g, seat, cands, pickIdx) {
 function playGame(seed) {
   var g = new C.Game({ seed: seed, targetScore: 500 });
   var buf = []; // 라운드 종료 시 결과를 채워 출력
+  var hist = []; // 이번 라운드의 플레이 이력 (플레이·패스)
   var nDec = 0, guard = 0;
   while (!g.gameOver) {
     if (g.phase === 'roundEnd') {
@@ -57,7 +59,7 @@ function playGame(seed) {
         r.out = (r.seat % 2 === 0) ? (d.teamA - d.teamB) : (d.teamB - d.teamA);
         out.write(JSON.stringify(r) + '\n');
       });
-      nDec += buf.length; buf = [];
+      nDec += buf.length; buf = []; hist = [];
       g.apply({ type: 'next_round' });
       continue;
     }
@@ -80,10 +82,19 @@ function playGame(seed) {
         var k2 = cands[i].t === 'pass' ? 'PASS' : keyOf(cands[i].c);
         if (k2 === key) { idx = i; break; }
       }
-      if (idx >= 0) buf.push(record(g, s, cands, idx));
+      if (idx >= 0) buf.push(record(g, s, cands, idx, hist));
     }
     var r = g.apply(a);
     if (!r.ok) throw new Error('rejected seed=' + seed + ' ' + a.type + ' ' + r.error.code);
+    // 플레이 이력 축적 (라운드 내) — 학습 특징용
+    if (g.phase === 'play' || a.type === 'play_cards' || a.type === 'pass_turn') {
+      if (a.type === 'pass_turn') hist.push({ s: s, t: 'pass', r: 0, l: 0 });
+      else if (a.type === 'play_cards' && r.ok) {
+        var la = g.lastAction;
+        if (la && la.combo) hist.push({ s: s, t: la.combo.type, r: la.combo.rank, l: la.combo.length });
+        else if (la && la.kind === 'dog') hist.push({ s: s, t: 'dog', r: 0, l: 1 });
+      }
+    }
     if (++guard > 30000) throw new Error('guard seed=' + seed);
   }
   return nDec;

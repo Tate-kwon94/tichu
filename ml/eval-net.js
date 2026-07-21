@@ -18,13 +18,13 @@ globalThis.__TICHU_HARD = { samples: 999999, budgetMs: hardBudget };
 
 var net = NET.load(wPath);
 
-function netDecide(g, seat) {
+function netDecide(g, seat, hist) {
   if (g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
     var gm = C.genMoves(g.hands[seat], g.currentCombo, g.wish);
     if (!gm.moves.length) return { type: 'pass_turn', seat: seat };
     var cands = gm.moves.map(function (m) { return { c: m.cards, t: m.combo.type, r: m.combo.rank, l: m.combo.length }; });
     if (g.currentCombo && !gm.forced) cands.push({ t: 'pass' });
-    var idx = cands.length === 1 ? 0 : net.pickRecord(net.makeRecord(g, seat, cands));
+    var idx = cands.length === 1 ? 0 : net.pickRecord(net.makeRecord(g, seat, cands, hist));
     var pick = cands[idx];
     if (pick.t === 'pass') return { type: 'pass_turn', seat: seat };
     var a = { type: 'play_cards', seat: seat, cards: pick.c };
@@ -39,17 +39,24 @@ function netDecide(g, seat) {
 
 function playGame(seed, netTeamA) {
   var g = new C.Game({ seed: seed, targetScore: 500 });
-  var guard = 0;
+  var hist = [], guard = 0;
   while (!g.gameOver) {
-    if (g.phase === 'roundEnd') { g.apply({ type: 'next_round' }); continue; }
+    if (g.phase === 'roundEnd') { hist = []; g.apply({ type: 'next_round' }); continue; }
     var w = g.waitingOn();
     if (!w.length) break;
     var s = w[0];
     var isNet = (s % 2 === 0) === netTeamA;
-    var a = isNet ? netDecide(g, s) : B.botDecide(g, s, oppLevel);
+    var a = isNet ? netDecide(g, s, hist) : B.botDecide(g, s, oppLevel);
     if (!a) throw new Error('no action');
     var r = g.apply(a);
     if (!r.ok) throw new Error('rejected ' + a.type + ' ' + r.error.code);
+    // 이력 축적 — gen-teacher.js와 동일 규칙
+    if (a.type === 'pass_turn') hist.push({ s: s, t: 'pass', r: 0, l: 0 });
+    else if (a.type === 'play_cards') {
+      var la = g.lastAction;
+      if (la && la.combo) hist.push({ s: s, t: la.combo.type, r: la.combo.rank, l: la.combo.length });
+      else if (la && la.kind === 'dog') hist.push({ s: s, t: 'dog', r: 0, l: 1 });
+    }
     if (++guard > 30000) throw new Error('guard');
   }
   return g.winnerTeam === (netTeamA ? 'A' : 'B');

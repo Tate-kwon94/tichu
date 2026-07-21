@@ -7,3 +7,4 @@ ml/.venv/
 ml/*.pt
 ml/*.json
 ml/*.jsonl
+ml/data/
