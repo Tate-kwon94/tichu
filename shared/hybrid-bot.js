@@ -132,6 +132,7 @@ function create(netOrPath) {
         if (active.length < 2) active = probs.map(function (_, i) { return i; });
         var totals = {}, counts = {};
         active.forEach(function (i) { totals[i] = 0; counts[i] = 0; });
+        function avgOf(i) { return counts[i] ? totals[i] / counts[i] : -Infinity; }
         var deadline = Date.now() + budget;
         for (var rep = 0; rep < 400 && Date.now() < deadline; rep++) {
           var det = B.determinize(game, seat);
@@ -143,6 +144,14 @@ function create(netOrPath) {
             if (!applyCand(sim, seat, cands[ci], h2)) continue;
             totals[ci] += heuristicPlayout(sim, seat, deadline);
             counts[ci]++;
+          }
+          // 마진 탈락(고수 탐색과 동일 기법): 선두와 명백한 격차인 후보 제거 → 남은 예산 집중
+          if ((rep === 5 || rep === 13 || rep === 29) && active.length > 3) {
+            var margin = rep === 5 ? 70 : rep === 13 ? 45 : 28;
+            var lead = -Infinity;
+            for (var li = 0; li < active.length; li++) lead = Math.max(lead, avgOf(active[li]));
+            var kept = active.filter(function (i) { return avgOf(i) >= lead - margin; });
+            if (kept.length >= 2) active = kept;
           }
         }
         var bv = -Infinity;
