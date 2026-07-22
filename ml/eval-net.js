@@ -17,14 +17,18 @@ var hardBudget = +process.argv[6] || 80;
 globalThis.__TICHU_HARD = { samples: 999999, budgetMs: hardBudget };
 
 var net = NET.load(wPath);
+// 상대가 'net:<weights.json>'이면 신경망끼리 직접 대결 (CPU 경합과 무관한 공정 비교)
+var oppNet = null;
+if (oppLevel.indexOf('net:') === 0) { oppNet = NET.load(oppLevel.slice(4)); oppLevel = 'net'; }
 
-function netDecide(g, seat, hist) {
+function netDecide(g, seat, hist, which) {
+  var N = which === 'opp' ? oppNet : net;
   if (g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
     var gm = C.genMoves(g.hands[seat], g.currentCombo, g.wish);
     if (!gm.moves.length) return { type: 'pass_turn', seat: seat };
     var cands = gm.moves.map(function (m) { return { c: m.cards, t: m.combo.type, r: m.combo.rank, l: m.combo.length }; });
     if (g.currentCombo && !gm.forced) cands.push({ t: 'pass' });
-    var idx = cands.length === 1 ? 0 : net.pickRecord(net.makeRecord(g, seat, cands, hist));
+    var idx = cands.length === 1 ? 0 : N.pickRecord(N.makeRecord(g, seat, cands, hist));
     var pick = cands[idx];
     if (pick.t === 'pass') return { type: 'pass_turn', seat: seat };
     var a = { type: 'play_cards', seat: seat, cards: pick.c };
@@ -46,7 +50,8 @@ function playGame(seed, netTeamA) {
     if (!w.length) break;
     var s = w[0];
     var isNet = (s % 2 === 0) === netTeamA;
-    var a = isNet ? netDecide(g, s, hist) : B.botDecide(g, s, oppLevel);
+    var a = isNet ? netDecide(g, s, hist)
+      : (oppNet ? netDecide(g, s, hist, 'opp') : B.botDecide(g, s, oppLevel));
     if (!a) throw new Error('no action');
     var r = g.apply(a);
     if (!r.ok) throw new Error('rejected ' + a.type + ' ' + r.error.code);

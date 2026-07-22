@@ -183,6 +183,8 @@ def main():
     ap.add_argument("--bs", type=int, default=256)
     ap.add_argument("--cap", type=int, default=None)
     ap.add_argument("--out", default="pilot-weights.pt")
+    ap.add_argument("--init", default=None, help="이어학습: 기존 가중치에서 시작")
+    ap.add_argument("--lr", type=float, default=1e-3)
     args = ap.parse_args()
 
     dev = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
@@ -192,7 +194,10 @@ def main():
     print(f"val {len(va)} decisions", flush=True)
 
     net = Net().to(dev)
-    opt = torch.optim.Adam(net.parameters(), lr=1e-3)
+    if args.init:
+        net.load_state_dict(torch.load(args.init, map_location="cpu"))
+        print("init from:", args.init)
+    opt = torch.optim.Adam(net.parameters(), lr=args.lr)
     print("params:", sum(p.numel() for p in net.parameters()))
 
     best = 0.0
