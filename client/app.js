@@ -46,11 +46,13 @@ function esc(s) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
   });
 }
-function toast(msg) {
+function toast(msg, opts) {
+  opts = opts || {};
   toastEl.textContent = msg;
   toastEl.classList.add('on');
+  toastEl.classList.toggle('warn', !!opts.warn);
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(function () { toastEl.classList.remove('on'); }, 2200);
+  toastTimer = setTimeout(function () { toastEl.classList.remove('on'); toastEl.classList.remove('warn'); }, opts.ms || 2200);
 }
 function game() { return state.snap && state.snap.game; }
 function mySeat() { return state.snap ? state.snap.youSeat : -1; }
@@ -260,7 +262,10 @@ var handlers = {
       return;
     }
     if (!m.ok && m.error && m.error.code !== 'STALE_VERSION') {
-      toast(m.error.message || m.error.code);
+      // 규칙에 의한 거부는 "왜 안 되는지"를 놓치지 않게 길고 눈에 띄게
+      var ruleCodes = ['WISH_REQUIRED', 'COMBO_TOO_LOW', 'CANNOT_PASS_LEAD', 'NOT_YOUR_TURN', 'CARDS_NOT_IN_HAND'];
+      var isRule = ruleCodes.indexOf(m.error.code) >= 0;
+      toast(m.error.message || m.error.code, isRule ? { ms: 4500, warn: true } : null);
       render();
     }
   },
@@ -899,8 +904,8 @@ function renderMeArea() {
     var canPass = myTurn() && g.currentCombo && !(you.mustFulfillWish);
     html += '<div class="actions">' +
       (you.canCallTichu ? tichuBtnHtml() : '') +
-      '<button class="btn" data-act="pass"' + (canPass ? '' : ' disabled') + '>' + STR.pass + '</button>' +
-      '<button class="btn primary" data-act="play"' + (ev && ev.legal ? '' : ' disabled') + '>' + STR.play + '</button>' +
+      '<button class="btn' + (canPass ? '' : ' dimmed') + '" data-act="pass">' + STR.pass + '</button>' +
+      '<button class="btn primary' + (ev && ev.legal ? '' : ' dimmed') + '" data-act="play">' + STR.play + '</button>' +
     '</div>';
     html += '<div class="comboHint">' + (state.tichuArmed ? STR.confirmHint : (ev ? esc(ev.label) : '')) + '</div>';
   } else if (g.phase === 'grand') {
@@ -1073,7 +1078,15 @@ function onCardTap(id) {
 
 function doPlay() {
   var ev = evalSelection();
-  if (!ev || !ev.legal) return;
+  if (!ev || !ev.legal) {
+    // 침묵하는 비활성 버튼 대신 "왜 안 되는지"를 말해줌 — '카드 안 내져요' 혼동 방지
+    var g0 = game(), why;
+    if (!ev) why = !myTurn() ? '아직 내 차례가 아닙니다' : '낼 카드를 먼저 선택하세요';
+    else why = ev.label;
+    if (g0 && g0.you && g0.you.mustFulfillWish && ev) why += ' — 소원(' + C.rankLabel(g0.wish) + ') 포함 필수';
+    toast(why, { ms: 4000, warn: true });
+    return;
+  }
   var ids = selectedIds();
   if (ids.indexOf('MJ') >= 0) {
     state.wishCards = ids;
@@ -1181,7 +1194,14 @@ function onClick(e) {
         render();
       }
       break;
-    case 'pass': send({ type: 'pass_turn' }); break;
+    case 'pass': {
+      var gp = game();
+      if (!myTurn()) { toast('아직 내 차례가 아닙니다', { ms: 3500, warn: true }); break; }
+      if (gp && !gp.currentCombo) { toast('선두는 패스할 수 없습니다 — 아무 조합이나 내세요', { ms: 4000, warn: true }); break; }
+      if (gp && gp.you && gp.you.mustFulfillWish) { toast('소원(' + C.rankLabel(gp.wish) + ')을 낼 수 있어 패스할 수 없습니다', { ms: 4500, warn: true }); break; }
+      send({ type: 'pass_turn' });
+      break;
+    }
     case 'play': doPlay(); break;
     case 'wish': {
       var r = +el.getAttribute('data-r');

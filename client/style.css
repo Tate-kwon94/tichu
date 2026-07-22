@@ -436,6 +436,13 @@ body.office .turnBanner { animation: none; } /* 엑셀 화면에서 깜빡이면
 body.office .hand .card.wishhi { box-shadow: inset 0 0 0 2px #217346; }
 body.office .play.win .card { box-shadow: inset 0 0 0 1px #217346; }
 
+/* 비활성처럼 보이지만 탭하면 이유를 말해주는 버튼 */
+.btn.dimmed { opacity: .45; }
+
+/* 규칙 거부 토스트 — 이유를 놓치지 않게 강조 */
+#toast.warn { background: #7e2c2c; border: 1px solid #ffd34d; font-weight: 700; }
+body.office #toast.warn { background: #c00000; color: #fff; border-color: #ffd966; }
+
 /* 초고수 선택 버튼 — 금색 강조 */
 .btn.gold { background: #c9a227; color: #221c05; border-color: rgba(255, 255, 255, .28); }
 body.office .btn.gold { background: #bf8f00; color: #fff; }

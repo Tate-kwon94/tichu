@@ -15,16 +15,31 @@ var seedEnd = +process.argv[5] || 10;
 var hyMs = +process.argv[6] || 950;
 var oppMs = +process.argv[7] || 950;
 var mode = process.argv[8] || 'value'; // value=가치롤아웃 | plus=챔피언+(휴리스틱 플레이아웃+프라이어+가지치기)
+var hyTemp = +process.argv[9] || 1;    // 본 하이브리드의 프라이어 온도
 globalThis.__TICHU_HARD = { samples: 999999, budgetMs: oppMs };
 
 var hy = HY.create(wPath);
+// 상대가 'hy:<weights.json>[:temp]'이면 챔피언끼리 대결(승단전용)
+var oppHy = null, oppHyTemp = 1;
+if (oppLevel.indexOf('hy:') === 0) {
+  var parts = oppLevel.slice(3).split(':');
+  oppHy = HY.create(parts[0]);
+  if (parts[1]) oppHyTemp = +parts[1] || 1;
+  oppLevel = 'hybrid';
+}
 
 function hyDecide(g, seat, hist) {
   if (g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
-    if (mode === 'plus') return hy.decidePlus(g, seat, hist, { budgetMs: hyMs });
+    if (mode === 'plus') return hy.decidePlus(g, seat, hist, { budgetMs: hyMs, temp: hyTemp });
     return hy.decide(g, seat, hist, { budgetMs: hyMs });
   }
   return B.botDecide(g, seat, 'normal'); // 선언·교환·소원·용 — 고수와 동일 휴리스틱
+}
+function oppHyDecide(g, seat, hist) {
+  if (g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
+    return oppHy.decidePlus(g, seat, hist, { budgetMs: oppMs, temp: oppHyTemp });
+  }
+  return B.botDecide(g, seat, 'normal');
 }
 
 function playGame(seed, hyTeamA) {
@@ -36,7 +51,8 @@ function playGame(seed, hyTeamA) {
     if (!w.length) break;
     var s = w[0];
     var isHy = (s % 2 === 0) === hyTeamA;
-    var a = isHy ? hyDecide(g, s, hist) : B.botDecide(g, s, oppLevel);
+    var a = isHy ? hyDecide(g, s, hist)
+      : (oppHy ? oppHyDecide(g, s, hist) : B.botDecide(g, s, oppLevel));
     if (!a) throw new Error('no action');
     var r = g.apply(a);
     if (!r.ok) throw new Error('rejected ' + a.type + ' ' + r.error.code);

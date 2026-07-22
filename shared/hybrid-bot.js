@@ -114,12 +114,18 @@ function create(netOrPath) {
       var budget = (opts && opts.budgetMs) || 950;
       var lambda = (opts && opts.lambda != null) ? opts.lambda : 20; // 원점수 단위
       var keepP = (opts && opts.keepP != null) ? opts.keepP : 0.03;
+      var temp = (opts && opts.temp) ? opts.temp : 1; // >1 = 프라이어 완화(자기증류 과확신 보정)
       var cc = candsOf(game, seat);
       var cands = cc.cands;
       if (!cands.length) return { type: 'pass_turn', seat: seat };
       var pickIdx = 0;
       if (cands.length > 1) {
         var probs = net.probsRecord(net.makeRecord(game, seat, cands, hist));
+        if (temp !== 1) {
+          var tSum = 0, ti;
+          for (ti = 0; ti < probs.length; ti++) { probs[ti] = Math.pow(probs[ti], 1 / temp); tSum += probs[ti]; }
+          for (ti = 0; ti < probs.length; ti++) probs[ti] /= tSum;
+        }
         var mx = Math.max.apply(null, probs);
         var active = [];
         for (var i0 = 0; i0 < cands.length; i0++) if (probs[i0] >= mx * keepP) active.push(i0);
