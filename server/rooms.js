@@ -10,8 +10,8 @@ var B = require('../shared/bots.js');
 var superBot = null;
 function getSuperBot() {
   if (!superBot) {
-    var HY = require(path.join(__dirname, '..', 'ml', 'hybrid-bot.js'));
-    superBot = HY.create(path.join(__dirname, 'weights', 'super.json'));
+    var HY = require(path.join(__dirname, '..', 'shared', 'hybrid-bot.js'));
+    superBot = HY.create(path.join(__dirname, '..', 'shared', 'weights-super.json'));
     console.log('[tichu] 초고수 가중치 로드 완료');
   }
   return superBot;

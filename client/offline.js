@@ -5,9 +5,22 @@ var OfflineSession = (function () {
 var SAVE_KEY = 'tichu.solo';
 var NAMES = ['나', '레오', '미나', '준'];
 
-function create(handlers, resume, botLevel) {
+function create(handlers, resume, botLevel, superHy) {
   var C = TichuCore, B = TichuBots;
-  botLevel = ['easy', 'normal', 'hard', 'devil'].indexOf(botLevel) >= 0 ? botLevel : 'normal';
+  botLevel = ['easy', 'normal', 'hard', 'devil', 'super'].indexOf(botLevel) >= 0 ? botLevel : 'normal';
+  if (botLevel === 'super' && !superHy) botLevel = 'hard'; // 가중치 미로드 시 안전 폴백
+  var hist = []; // 라운드 내 플레이 이력 — 초고수 신경망 입력
+  function trackHist(a) {
+    if (a.type === 'next_round' || a.type === 'restart') { hist = []; return; }
+    if (a.type === 'pass_turn') hist.push({ s: a.seat, t: 'pass', r: 0, l: 0 });
+    else if (a.type === 'play_cards') {
+      var la = game.lastAction;
+      if (la && la.combo) hist.push({ s: a.seat, t: la.combo.type, r: la.combo.rank, l: la.combo.length });
+      else if (la && la.kind === 'dog') hist.push({ s: a.seat, t: 'dog', r: 0, l: 1 });
+    }
+    if (game.phase === 'roundEnd' || game.phase === 'gameEnd') hist = [];
+    else if (hist.length > 24) hist.splice(0, hist.length - 24);
+  }
   var game = null;
   if (resume) {
     try {
@@ -52,12 +65,15 @@ function create(handlers, resume, botLevel) {
       if (botLevel !== 'easy' && game.phase === 'play' && game.turnSeat === s && !game.playedFirst[s] &&
           !game.tichu[s] && B.botTichu(game.hands[s])) {
         a = { type: 'call_tichu', seat: s };
+      } else if (botLevel === 'super' && game.phase === 'play' && game.turnSeat === s && game.finished.indexOf(s) < 0) {
+        a = superHy.decidePlus(game, s, hist, { budgetMs: 900 });
       } else {
-        a = B.botDecide(game, s, botLevel);
+        a = B.botDecide(game, s, botLevel === 'super' ? 'normal' : botLevel);
       }
       if (a) {
         var r = game.apply(a);
         if (!r.ok) { stopped = true; return; } // 봇 버그 방어 — 멈추고 사람이 새 게임
+        trackHist(a);
         persist();
         emit();
       }
@@ -73,6 +89,7 @@ function create(handlers, resume, botLevel) {
     var r = game.apply(a);
     if (handlers.onAck) handlers.onAck({ type: 'action_ack', actionId: a.actionId || '', ok: r.ok, error: r.error || null });
     if (r.ok) {
+      trackHist(a);
       persist();
       emit();
       pump();

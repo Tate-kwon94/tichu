@@ -34,7 +34,7 @@ var state = {
   chatDraft: '',         // 작성 중 초안 (재렌더에도 보존)
   bubbles: {},           // seat → {text, until} 말풍선
   roomList: [],          // 홈 화면 열린 방 목록
-  botLevel: 'normal',    // 봇 난이도 (easy|normal)
+  botLevel: 'super',     // 봇 난이도 (easy|normal|hard|super|devil) — 기본 초고수
   conn: { s: '', mode: '' }
 };
 var tichuArmTimer = null;
@@ -314,10 +314,32 @@ function ensureOnline(cb) {
   state.session = OnlineSession.create(handlers);
   state.session.connect(state.name);
 }
+var superHyCache = null; // 초고수 신경망 — 첫 사용 시 가중치(~3MB) 내려받아 캐시
 function startSolo(resume) {
   destroySession();
   if (!resume) OfflineSession.clearSave();
-  state.session = OfflineSession.create(handlers, resume, state.botLevel === 'super' ? 'hard' : state.botLevel); // 초고수는 서버 전용
+  if (state.botLevel === 'super') {
+    if (superHyCache) {
+      state.session = OfflineSession.create(handlers, resume, 'super', superHyCache);
+      state.conn = { s: '', mode: 'offline' };
+      return;
+    }
+    toast('초고수 준비 중…');
+    fetch('shared/weights-super.json')
+      .then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.json(); })
+      .then(function (w) {
+        superHyCache = TichuHybrid.create(TichuNet.create(w));
+        state.session = OfflineSession.create(handlers, resume, 'super', superHyCache);
+        state.conn = { s: '', mode: 'offline' };
+      })
+      .catch(function () {
+        toast('초고수 로드 실패 — 고수로 시작합니다');
+        state.session = OfflineSession.create(handlers, resume, 'hard');
+        state.conn = { s: '', mode: 'offline' };
+      });
+    return;
+  }
+  state.session = OfflineSession.create(handlers, resume, state.botLevel);
   state.conn = { s: '', mode: 'offline' };
 }
 function requestRooms() {
@@ -594,16 +616,15 @@ function roomListHtml() {
 }
 // full=true(혼자 연습): 4단계 전부. full=false(온라인 로비): 쉬움/보통만(서버 보호·공정성)
 function botLevelPicker(full) {
-  // 혼자 연습: 쉬움~악마 (초고수는 서버 전용 — 신경망 가중치가 서버에만 있음)
+  // 혼자 연습: 쉬움~악마+초고수 (초고수 신경망은 첫 시작 때 내려받아 기기에서 구동)
   // 온라인 로비: 쉬움~초고수 (악마는 상대 패 열람이라 사람에게 불공정 → 제외)
   var opts = full
-    ? [['easy', STR.botEasy], ['normal', STR.botNormal], ['hard', STR.botHard], ['devil', STR.botDevil]]
+    ? [['easy', STR.botEasy], ['normal', STR.botNormal], ['hard', STR.botHard], ['super', STR.botSuper], ['devil', STR.botDevil]]
     : [['easy', STR.botEasy], ['normal', STR.botNormal], ['hard', STR.botHard], ['super', STR.botSuper]];
-  var lv = full
-    ? (state.botLevel === 'super' ? 'hard' : state.botLevel)   // 솔로에서 초고수 선택값은 고수로
+  var lv = full ? state.botLevel
     : (state.botLevel === 'devil' ? 'hard' : state.botLevel);  // 온라인에서 악마 선택값은 고수로
   var hint = (lv === 'hard') ? STR.botHintHard
-    : (!full && lv === 'super') ? STR.botHintSuper
+    : (lv === 'super') ? STR.botHintSuper
     : (full && lv === 'devil') ? STR.botHintDevil : '';
   return '<div class="targetRow botRow"><span class="targetLbl">' + STR.botLevelLbl + '</span>' +
     opts.map(function (o) {
@@ -1261,7 +1282,7 @@ function init() {
   try { state.office = localStorage.getItem('tichu.office') === '1'; } catch (e) {}
   try { var xs = localStorage.getItem('tichu.xlstyle'); state.xlStyle = (xs === '1' || xs === '2' || xs === '3') ? xs : ''; } catch (e) {}
   try { var gh = parseInt(localStorage.getItem('tichu.ghost') || '0', 10); state.ghost = (gh === 1 || gh === 2) ? gh : 0; } catch (e) {}
-  try { var bl = localStorage.getItem('tichu.botlevel'); state.botLevel = ['easy', 'normal', 'hard', 'devil', 'super'].indexOf(bl) >= 0 ? bl : 'normal'; } catch (e) {}
+  try { var bl = localStorage.getItem('tichu.botlevel'); state.botLevel = ['easy', 'normal', 'hard', 'devil', 'super'].indexOf(bl) >= 0 ? bl : 'super'; } catch (e) {}
   state.urlRoom = (new URLSearchParams(location.search).get('room') || '').toUpperCase().slice(0, 4);
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js').catch(function () {});
