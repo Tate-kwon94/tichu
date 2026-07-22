@@ -2,8 +2,34 @@
  * 모든 액션은 도착 순서대로 동기 처리(Node 단일 스레드 = 자연 직렬화) */
 'use strict';
 var crypto = require('crypto');
+var path = require('path');
 var C = require('../shared/tichu-core.js');
 var B = require('../shared/bots.js');
+
+// 초고수 봇(신경망+탐색 하이브리드) — 첫 사용 시 가중치 로드(~3MB)
+var superBot = null;
+function getSuperBot() {
+  if (!superBot) {
+    var HY = require(path.join(__dirname, '..', 'ml', 'hybrid-bot.js'));
+    superBot = HY.create(path.join(__dirname, 'weights', 'super.json'));
+    console.log('[tichu] 초고수 가중치 로드 완료');
+  }
+  return superBot;
+}
+
+// 플레이 이력(라운드 내 최근 수) — 초고수 신경망 입력. 라운드 경계에서 리셋
+function trackHist(room, act, g) {
+  if (!room.playHist) room.playHist = [];
+  if (act.type === 'next_round' || act.type === 'restart') { room.playHist = []; return; }
+  if (act.type === 'pass_turn') room.playHist.push({ s: act.seat, t: 'pass', r: 0, l: 0 });
+  else if (act.type === 'play_cards') {
+    var la = g.lastAction;
+    if (la && la.combo) room.playHist.push({ s: act.seat, t: la.combo.type, r: la.combo.rank, l: la.combo.length });
+    else if (la && la.kind === 'dog') room.playHist.push({ s: act.seat, t: 'dog', r: 0, l: 1 });
+  }
+  if (g.phase === 'roundEnd' || g.phase === 'gameEnd') room.playHist = [];
+  else if (room.playHist.length > 24) room.playHist.splice(0, room.playHist.length - 24);
+}
 
 var PROTO = 1;
 var CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // 0/O/1/I/L 제외
@@ -176,12 +202,16 @@ function botAct(room, seat) {
   if (p && p.isBot && room.botLevel !== 'easy' && g.phase === 'play' && g.turnSeat === seat &&
       !g.playedFirst[seat] && !g.tichu[seat] && B.botTichu(g.hands[seat])) {
     a = { type: 'call_tichu', seat: seat };
+  } else if (room.botLevel === 'super' && g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
+    a = getSuperBot().decidePlus(g, seat, room.playHist || [], { budgetMs: 950 });
   } else {
+    // 초고수의 선언·교환·소원·용은 고수와 같은 휴리스틱(botDecide는 미지 레벨을 보통으로 처리)
     a = B.botDecide(g, seat, room.botLevel);
   }
   if (!a) return;
   var r = g.apply(a);
   if (r.ok) {
+    trackHist(room, a, g);
     room.lastActivity = now();
     scheduleBots(room);
     broadcast(room);
@@ -484,9 +514,11 @@ function handle(player, a) {
       for (var f = 0; f < 4; f++) if (!room.seats[f]) room.seats[f] = makeBot(f, room);
       var ts = (a.targetScore === 300 || a.targetScore === 500 || a.targetScore === 1000) ? a.targetScore : 1000;
       room.targetScore = ts;
-      // 온라인은 쉬움/보통/고수까지. 고수 탐색은 950ms 시간컷 — 동시 1게임 수준 트래픽 전제로 상향
-      // (v15: 고속 복제+교환정보 결정화+마진 탈락으로 강화). 악마(상대 패 열람)는 사람에게 불공정 → 제외
-      room.botLevel = ['easy', 'normal', 'hard'].indexOf(a.botLevel) >= 0 ? a.botLevel : 'normal';
+      // 온라인은 쉬움/보통/고수/초고수. 고수·초고수 탐색은 950ms 시간컷 — 동시 1게임 수준 트래픽 전제
+      // 초고수(v16) = 신경망 프라이어·가지치기 + 탐색 하이브리드 (고수950 상대 65% 실측)
+      // 악마(상대 패 열람)는 사람에게 불공정 → 제외
+      room.botLevel = ['easy', 'normal', 'hard', 'super'].indexOf(a.botLevel) >= 0 ? a.botLevel : 'normal';
+      room.playHist = [];
       room.game = new C.Game({ targetScore: ts });
       room.lastActivity = now();
       scheduleBots(room);
@@ -554,6 +586,7 @@ function handle(player, a) {
 
   var res = g.apply(engineAction);
   if (!res.ok) return ackOf(a, room, res.error);
+  trackHist(room, engineAction, g);
   room.lastActivity = now();
   scheduleBots(room);
   broadcast(room);

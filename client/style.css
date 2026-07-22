@@ -436,6 +436,10 @@ body.office .turnBanner { animation: none; } /* 엑셀 화면에서 깜빡이면
 body.office .hand .card.wishhi { box-shadow: inset 0 0 0 2px #217346; }
 body.office .play.win .card { box-shadow: inset 0 0 0 1px #217346; }
 
+/* 초고수 선택 버튼 — 금색 강조 */
+.btn.gold { background: #c9a227; color: #221c05; border-color: rgba(255, 255, 255, .28); }
+body.office .btn.gold { background: #bf8f00; color: #fff; }
+
 /* ---------- 위장 카드 시안(셀형): xl1=무늬 xl2=문자코드 xl3=숫자만 ----------
    카드를 시트 셀처럼 납작한 그리드로 — 멀리서 보면 데이터 행으로 보이게.
    fitHand()는 셀형에서 건너뜀(겹침 대신 줄바꿈) — 기본 negative margin은 여기서 무효화 */
