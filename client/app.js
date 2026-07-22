@@ -22,6 +22,8 @@ var state = {
   office: false,         // 엑셀 위장 모드
   xlStyle: '',           // 위장 카드 시안: ''=기존 카드형, '1'=셀+무늬, '2'=셀+문자코드, '3'=셀+숫자만
   ghost: 0,              // 반투명 모드 0=끔 1=연하게 2=아주 연하게 (위장과 병행 가능)
+  passId: null,          // 마지막 패스 actionId — 경합 거부 시 자동 재시도
+  retryPass: false,      // 새 상태 도착 시 패스 1회 재전송
   composing: false,      // 한글 IME 조합 중 (재렌더가 조합을 끊지 않게)
   renderQueued: false,   // 조합·타이핑 중 미뤄둔 렌더
   lastTypeAt: 0,         // 마지막 키 입력 시각 — 조합 이벤트가 불안정한 IME 안전망
@@ -243,6 +245,16 @@ var handlers = {
     state.screen = 'game';
     reconcile();
     render();
+    // 패스가 봇 수와 경합해 STALE로 거부됐다면, 새 상태에서 여전히 유효할 때 1회 자동 재전송
+    if (state.retryPass) {
+      state.retryPass = false;
+      var g2 = game();
+      if (g2 && myTurn() && g2.currentCombo && !(g2.you && g2.you.mustFulfillWish)) {
+        var pa2 = { type: 'pass_turn' };
+        send(pa2);
+        state.passId = pa2.actionId || null;
+      }
+    }
   },
   onWelcome: function (msg) {
     state.welcomed = true;
@@ -259,6 +271,11 @@ var handlers = {
     if (m.rooms) { // list_rooms 응답
       state.roomList = m.rooms;
       if (state.screen === 'home') render();
+      return;
+    }
+    if (!m.ok && m.error && m.error.code === 'STALE_VERSION' && state.passId && m.actionId === state.passId) {
+      state.retryPass = true; // 다음 상태 도착 시 자동 재패스 (봇 수와의 경합 해소)
+      state.passId = null;
       return;
     }
     if (!m.ok && m.error && m.error.code !== 'STALE_VERSION') {
@@ -1199,7 +1216,9 @@ function onClick(e) {
       if (!myTurn()) { toast('아직 내 차례가 아닙니다', { ms: 3500, warn: true }); break; }
       if (gp && !gp.currentCombo) { toast('선두는 패스할 수 없습니다 — 아무 조합이나 내세요', { ms: 4000, warn: true }); break; }
       if (gp && gp.you && gp.you.mustFulfillWish) { toast('소원(' + C.rankLabel(gp.wish) + ')을 낼 수 있어 패스할 수 없습니다', { ms: 4500, warn: true }); break; }
-      send({ type: 'pass_turn' });
+      var pa = { type: 'pass_turn' };
+      send(pa);
+      state.passId = pa.actionId || null; // 상태 경합 거부 시 자동 재시도용
       break;
     }
     case 'play': doPlay(); break;
