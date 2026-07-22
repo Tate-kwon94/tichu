@@ -98,6 +98,29 @@ function create(netOrPath) {
     return myTeamEven ? d.teamA - d.teamB : d.teamB - d.teamA;
   }
 
+  // 고급 자원 낭비 페널티(원점수 단위) — 푼돈 트릭에 폭탄·용·A를 쓰는 수 억제.
+  // 시뮬레이션 평균이 희석하는 "아껴야 하는 이유"를 명시 비용으로 보정 (사람 체감 개선)
+  function wasteCost(g, seat, cand, handN) {
+    if (cand.t === 'pass' || cand.l === handN || handN <= 6) return 0; // 완주 수·종반 면제
+    var opp1 = (seat + 1) % 4, opp2 = (seat + 3) % 4;
+    var enemyTichu = (g.tichu[opp1] > 0 && g.finished.indexOf(opp1) < 0) ||
+                     (g.tichu[opp2] > 0 && g.finished.indexOf(opp2) < 0);
+    if (enemyTichu) return 0; // 상대 티츄 저지 국면 면제
+    var pts = C.sumPoints(g.trickPile);
+    var cost = 0;
+    if (cand.t === 'bomb4' || cand.t === 'bombstraight') {
+      if (pts < 15) cost += 30; // 푼돈에 폭탄
+    } else {
+      for (var i = 0; i < cand.c.length; i++) {
+        var id = cand.c[i];
+        if (id === 'DR') { if (pts < 10) cost += 25; }
+        else if (id !== 'PH' && id !== 'MJ' && id !== 'DG' && C.rankOf(id) >= 14 &&
+                 cand.t === 'single' && pts < 5) cost += 12; // 푼돈에 A 싱글
+      }
+    }
+    return cost;
+  }
+
   function finishAction(g, seat, pick) {
     if (pick.t === 'pass') return { type: 'pass_turn', seat: seat };
     var a = { type: 'play_cards', seat: seat, cards: pick.c };
@@ -155,10 +178,12 @@ function create(netOrPath) {
           }
         }
         var bv = -Infinity;
+        var handN = game.hands[seat].length;
         for (var a2 = 0; a2 < active.length; a2++) {
           var c3 = active[a2];
           if (!counts[c3]) continue;
-          var sc = totals[c3] / counts[c3] + lambda * Math.log(Math.max(probs[c3], 1e-6));
+          var sc = totals[c3] / counts[c3] + lambda * Math.log(Math.max(probs[c3], 1e-6))
+            - wasteCost(game, seat, cands[c3], handN);
           if (sc > bv) { bv = sc; pickIdx = c3; }
         }
       }
