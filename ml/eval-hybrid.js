@@ -23,12 +23,17 @@ var hy = HY.create(wPath);
 var DECL = require(path.join(__dirname, '..', 'shared', 'declare.js'));
 var decl = null;
 try { decl = DECL.load(path.join(__dirname, '..', 'shared', 'weights-declare.json')); } catch (e) {}
-// 상대가 'hy:<weights.json>[:temp]'이면 챔피언끼리 대결(승단전용)
-var oppHy = null, oppHyTemp = 1;
+// 상대가 'hy:<weights>[:temp]'(챔피언+) 또는 'pu:<weights>[:c]'(PUCT)이면 봇끼리 대결(승단전)
+var oppHy = null, oppHyTemp = 1, oppHyMode = 'plus', oppHyC = 1.0;
 if (oppLevel.indexOf('hy:') === 0) {
   var parts = oppLevel.slice(3).split(':');
   oppHy = HY.create(parts[0]);
   if (parts[1]) oppHyTemp = +parts[1] || 1;
+  oppLevel = 'hybrid';
+} else if (oppLevel.indexOf('pu:') === 0) {
+  var pp = oppLevel.slice(3).split(':');
+  oppHy = HY.create(pp[0]); oppHyMode = 'puct';
+  if (pp[1]) oppHyC = +pp[1] || 1.0;
   oppLevel = 'hybrid';
 }
 
@@ -48,7 +53,15 @@ function hyDecide(g, seat, hist) {
   return B.botDecide(g, seat, 'normal'); // 교환·소원·용 — 휴리스틱 유지
 }
 function oppHyDecide(g, seat, hist) {
+  if (decl && g.phase === 'grand' && !g.grandAnswered[seat]) {
+    return { type: 'call_grand', seat: seat, call: decl.grand(g.hands[seat]) };
+  }
+  if (decl && g.phase === 'play' && g.turnSeat === seat && !g.playedFirst[seat] &&
+      !g.tichu[seat] && g.finished.indexOf(seat) < 0 && decl.tichu(g.hands[seat])) {
+    return { type: 'call_tichu', seat: seat };
+  }
   if (g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
+    if (oppHyMode === 'puct') return oppHy.decidePuct(g, seat, hist, { budgetMs: oppMs, c: oppHyC });
     return oppHy.decidePlus(g, seat, hist, { budgetMs: oppMs, temp: oppHyTemp });
   }
   return B.botDecide(g, seat, 'normal');

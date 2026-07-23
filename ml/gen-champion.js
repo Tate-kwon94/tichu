@@ -69,7 +69,7 @@ function playGame(seed) {
       var gm = C.genMoves(g.hands[s], g.currentCombo, g.wish);
       cands = gm.moves.map(function (m) { return { c: m.cards, t: m.combo.type, r: m.combo.rank, l: m.combo.length }; });
       if (g.currentCombo && !gm.forced) cands.push({ t: 'pass' });
-      a = hy.decidePlus(g, s, hist, { budgetMs: budget });
+      a = hy.decidePuct(g, s, hist, { budgetMs: budget, c: 1.0 }); // 새 챔피언 = PUCT
     } else {
       a = B.botDecide(g, s, 'normal');
     }
