@@ -121,6 +121,31 @@ function create(netOrPath) {
     return cost;
   }
 
+  // Phase 2: 보유 가치(아끼기) — 강카드를 이번 수로 소비하는 기회비용을 평가에 반영(v-space 음수).
+  // 시뮬 평균이 희석하는 "아꼈다 결정적일 때 쓴다"의 가치를 명시화. 3가지로 감쇠(지금 쓸 값어치·위협·종반).
+  function holdBonus(g, seat, cand) {
+    var n = g.hands[seat].length;
+    if (cand.t === 'pass' || cand.l === n) return 0; // 패스·완주는 소비/기회비용 아님
+    var spend = 0;
+    if (cand.t === 'bomb4' || cand.t === 'bombstraight') spend += 25; // 폭탄 가장 아깝
+    for (var i = 0; i < (cand.c || []).length; i++) {
+      var id = cand.c[i];
+      if (id === 'DR') spend += 20;                               // 용
+      else if (id === 'PH') spend += 12;                          // 불사조
+      else if (id !== 'MJ' && id !== 'DG' && C.rankOf(id) === 14) spend += 10; // A
+      else if (id !== 'MJ' && id !== 'DG' && C.rankOf(id) === 13) spend += 4;  // K
+    }
+    if (!spend) return 0;
+    var pot = C.sumPoints(g.trickPile);
+    var potF = Math.max(0, 1 - pot / 20);                         // 트릭 점수 크면 지금 써도 됨
+    var opp1 = (seat + 1) % 4, opp2 = (seat + 3) % 4;
+    var threat = ((g.tichu[opp1] > 0 && g.finished.indexOf(opp1) < 0) ||
+                  (g.tichu[opp2] > 0 && g.finished.indexOf(opp2) < 0) ||
+                  g.hands[opp1].length <= 3 || g.hands[opp2].length <= 3) ? 0.3 : 1.0; // 상대 위협 시 지금 써야
+    var decay = Math.max(0, (n - 5) / 9);                         // 종반(손패 적음)엔 아낄 이유 없음
+    return -(spend / 50) * potF * threat * decay;                // 소비 억제 = 아끼기 (v-space 나눔=강도)
+  }
+
   function finishAction(g, seat, pick) {
     if (pick.t === 'pass') return { type: 'pass_turn', seat: seat };
     var a = { type: 'play_cards', seat: seat, cards: pick.c };
@@ -151,6 +176,12 @@ function create(netOrPath) {
         for (ti = 0; ti < probs.length; ti++) probs[ti] /= tS;
       }
       var K = cands.length;
+      // ② 보유 가치: 후보별 기회비용을 미리 계산(결정론적, 상수 오프셋)
+      var holdV = null;
+      if (opts && opts.holdValue) {
+        holdV = new Float64Array(K);
+        for (var hi = 0; hi < K; hi++) holdV[hi] = holdBonus(game, seat, cands[hi]);
+      }
       var Q = new Float64Array(K), N = new Int32Array(K), totalN = 0;
       var deadline = Date.now() + budget, rep = 0;
       while (Date.now() < deadline && rep < 2000) {
@@ -166,6 +197,7 @@ function create(netOrPath) {
         var h2 = hist.slice();
         if (applyCand(sim, seat, cands[best], h2)) {
           var v = Math.max(-2, Math.min(2, heuristicPlayout(sim, seat, deadline) / 100));
+          if (holdV) v += holdV[best]; // 강카드 소비 억제 = 아끼기
           Q[best] += (v - Q[best]) / (N[best] + 1); // 러닝 평균
           N[best]++; totalN++;
         } else {
