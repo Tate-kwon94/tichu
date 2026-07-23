@@ -37,18 +37,27 @@ if (oppLevel.indexOf('hy:') === 0) {
   oppLevel = 'hybrid';
 }
 
+// 2단 후보 프로파일 — 주(main) 봇에만 켜지는 ①②③ 개선 (상대=동결 1단은 미적용).
+// 사용: TICHU_CAND=declAdjust,holdValue,oppRead node eval-hybrid.js ...
+var CAND = (process.env.TICHU_CAND || '').split(',').filter(Boolean);
+function hasCand(f) { return CAND.indexOf(f) >= 0; }
+function scoreCtx(g, seat) { return { my: g.scores[seat % 2], opp: g.scores[1 - (seat % 2)], tgt: g.targetScore }; }
+
 function hyDecide(g, seat, hist) {
+  var ctx = hasCand('declAdjust') ? scoreCtx(g, seat) : null; // ① 선언 위험조절
   if (decl && g.phase === 'grand' && !g.grandAnswered[seat]) {
-    return { type: 'call_grand', seat: seat, call: decl.grand(g.hands[seat]) };
+    return { type: 'call_grand', seat: seat, call: decl.grand(g.hands[seat], ctx) };
   }
   if (decl && g.phase === 'play' && g.turnSeat === seat && !g.playedFirst[seat] &&
-      !g.tichu[seat] && g.finished.indexOf(seat) < 0 && decl.tichu(g.hands[seat])) {
+      !g.tichu[seat] && g.finished.indexOf(seat) < 0 && decl.tichu(g.hands[seat], ctx)) {
     return { type: 'call_tichu', seat: seat };
   }
   if (g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
-    if (mode === 'puct') return hy.decidePuct(g, seat, hist, { budgetMs: hyMs, temp: hyTemp, c: (+process.argv[10] || 1.5) });
-    if (mode === 'plus') return hy.decidePlus(g, seat, hist, { budgetMs: hyMs, temp: hyTemp });
-    return hy.decide(g, seat, hist, { budgetMs: hyMs });
+    var opts = { budgetMs: hyMs, temp: hyTemp, c: (+process.argv[10] || 1.5),
+      holdValue: hasCand('holdValue'), oppRead: hasCand('oppRead') }; // ②③
+    if (mode === 'puct') return hy.decidePuct(g, seat, hist, opts);
+    if (mode === 'plus') return hy.decidePlus(g, seat, hist, opts);
+    return hy.decide(g, seat, hist, opts);
   }
   return B.botDecide(g, seat, 'normal'); // 교환·소원·용 — 휴리스틱 유지
 }

@@ -62,14 +62,14 @@ function create(handlers, resume, botLevel, superHy, declNet) {
       if (stopped) return;
       var s = w[0];
       var a = null;
-      var declCtx = { my: game.scores[s % 2], opp: game.scores[1 - (s % 2)], tgt: game.targetScore };
+      // 1단(super) 동결 — 고정 임계 선언(ctx 미전달)
       var wantTichu = game.phase === 'play' && game.turnSeat === s && !game.playedFirst[s] && !game.tichu[s] &&
-        (botLevel === 'super' && declNet ? declNet.tichu(game.hands[s], declCtx)
+        (botLevel === 'super' && declNet ? declNet.tichu(game.hands[s])
           : (botLevel !== 'easy' && botLevel !== 'super' && B.botTichu(game.hands[s])));
       if (wantTichu) {
         a = { type: 'call_tichu', seat: s };
       } else if (botLevel === 'super' && declNet && game.phase === 'grand' && !game.grandAnswered[s]) {
-        a = { type: 'call_grand', seat: s, call: declNet.grand(game.hands[s], declCtx) }; // 선언 신경망
+        a = { type: 'call_grand', seat: s, call: declNet.grand(game.hands[s]) }; // 선언 신경망(동결)
       } else if (botLevel === 'super' && game.phase === 'play' && game.turnSeat === s && game.finished.indexOf(s) < 0) {
         a = superHy.decidePuct(game, s, hist, { budgetMs: 900, c: 1.0 });
       } else {
