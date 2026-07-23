@@ -41,6 +41,7 @@ function hyDecide(g, seat, hist) {
     return { type: 'call_tichu', seat: seat };
   }
   if (g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
+    if (mode === 'puct') return hy.decidePuct(g, seat, hist, { budgetMs: hyMs, temp: hyTemp, c: (+process.argv[10] || 1.5) });
     if (mode === 'plus') return hy.decidePlus(g, seat, hist, { budgetMs: hyMs, temp: hyTemp });
     return hy.decide(g, seat, hist, { budgetMs: hyMs });
   }

@@ -48,8 +48,7 @@
 | `next_round` / `restart_game` | — | 방장(끊겨 있으면 아무 사람) |
 | `chat` | `text`(≤200자) | 방 전체에 브로드캐스트. 제어문자 제거, 0.6초 레이트리밋. 게임 version은 올리지 않음 |
 
-**version 규칙**: `pass_turn`은 version 불일치 시 `STALE_VERSION`(클라이언트는 조용히 무시).
-`play_cards`는 불일치 시 폭탄(bomb4/bombstraight)일 때만 현재 상태 기준으로 재검증 허용.
+**version 규칙**: `pass_turn`은 버전 게이트 없음 — 엔진(_pass)이 차례·선두·소원을 재검증(정당한 패스가 버전 지연으로 거부되던 버그 해결). `play_cards`는 version 불일치 시 `STALE_VERSION`, 단 폭탄(bomb4/bombstraight)은 현재 상태 기준으로 재검증 통과.
 
 ## 서버 → 클라이언트
 

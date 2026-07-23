@@ -567,9 +567,8 @@ function handle(player, a) {
   var g = room.game;
 
   // 버전 검사: 어긋난 패스는 무시, 어긋난 플레이는 폭탄만 재검증 허용
-  if (a.type === 'pass_turn' && a.version != null && a.version !== room.version) {
-    return ackOf(a, room, err('STALE_VERSION', '상태가 갱신되었습니다'));
-  }
+  // 패스는 버전 게이트 없이 엔진 검증에 맡김 — 정당한 패스가 버전 지연(폭탄 끼어들기·업데이트 지연)으로
+  // 조용히 거부되던 버그 해결. 엔진(_pass)이 차례·선두·소원을 어차피 재검증하므로 안전.
   if (a.type === 'play_cards' && a.version != null && a.version !== room.version) {
     var cmb = Array.isArray(a.cards) ? C.identify(a.cards) : null;
     if (!cmb || !C.isBomb(cmb.type)) return ackOf(a, room, err('STALE_VERSION', '상태가 갱신되었습니다'));

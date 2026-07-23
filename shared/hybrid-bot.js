@@ -132,6 +132,55 @@ function create(netOrPath) {
   }
 
   return {
+    // PUCT 모드 (알파고 방식) — 신경망 정책을 "가지치기 힌트"가 아니라 "탐험 배분"으로 사용.
+    // 매 시뮬 후보 선택: Q + c·P·√(ΣN)/(1+N). 유망 후보는 깊이 파되 정책확률만큼 탐험도 보장
+    // → 강한 신경망일수록 배분이 정확해져 강함이 실력으로 전환(챔피언+의 과확신 함정 회피).
+    // 평가는 검증된 휴리스틱 플레이아웃, 최종 선택은 최다 방문(robust).
+    decidePuct: function (game, seat, hist, opts) {
+      var budget = (opts && opts.budgetMs) || 950;
+      var c = (opts && opts.c != null) ? opts.c : 1.5;
+      var temp = (opts && opts.temp) ? opts.temp : 1;
+      var cc = candsOf(game, seat);
+      var cands = cc.cands;
+      if (!cands.length) return { type: 'pass_turn', seat: seat };
+      if (cands.length === 1) return finishAction(game, seat, cands[0]);
+      var probs = net.probsRecord(net.makeRecord(game, seat, cands, hist));
+      if (temp !== 1) {
+        var tS = 0, ti;
+        for (ti = 0; ti < probs.length; ti++) { probs[ti] = Math.pow(probs[ti], 1 / temp); tS += probs[ti]; }
+        for (ti = 0; ti < probs.length; ti++) probs[ti] /= tS;
+      }
+      var K = cands.length;
+      var Q = new Float64Array(K), N = new Int32Array(K), totalN = 0;
+      var deadline = Date.now() + budget, rep = 0;
+      while (Date.now() < deadline && rep < 2000) {
+        // PUCT 선택
+        var best = -1, bv = -Infinity, sqrtT = Math.sqrt(totalN + 1);
+        for (var i = 0; i < K; i++) {
+          var u = c * probs[i] * sqrtT / (1 + N[i]);
+          var q = N[i] ? Q[i] : 0; // 미방문은 Q=0(중립) — 탐험항이 첫 방문 유도
+          if (q + u > bv) { bv = q + u; best = i; }
+        }
+        var det = B.determinize(game, seat);
+        var sim = det.clone ? det.clone() : B.cloneGame(det);
+        var h2 = hist.slice();
+        if (applyCand(sim, seat, cands[best], h2)) {
+          var v = Math.max(-2, Math.min(2, heuristicPlayout(sim, seat, deadline) / 100));
+          Q[best] += (v - Q[best]) / (N[best] + 1); // 러닝 평균
+          N[best]++; totalN++;
+        } else {
+          Q[best] = -1e9; N[best]++; // 불법 수 배제
+        }
+        rep++;
+      }
+      // 최종: 최다 방문 (동률이면 Q 높은 쪽)
+      var pick = 0, bn = -1;
+      for (var j = 0; j < K; j++) {
+        if (N[j] > bn || (N[j] === bn && Q[j] > Q[pick])) { bn = N[j]; pick = j; }
+      }
+      return finishAction(game, seat, cands[pick]);
+    },
+
     // 챔피언+ 모드 (공식 초고수)
     decidePlus: function (game, seat, hist, opts) {
       var budget = (opts && opts.budgetMs) || 950;
