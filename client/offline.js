@@ -5,7 +5,7 @@ var OfflineSession = (function () {
 var SAVE_KEY = 'tichu.solo';
 var NAMES = ['나', '레오', '미나', '준'];
 
-function create(handlers, resume, botLevel, superHy) {
+function create(handlers, resume, botLevel, superHy, declNet) {
   var C = TichuCore, B = TichuBots;
   botLevel = ['easy', 'normal', 'hard', 'devil', 'super'].indexOf(botLevel) >= 0 ? botLevel : 'normal';
   if (botLevel === 'super' && !superHy) botLevel = 'hard'; // 가중치 미로드 시 안전 폴백
@@ -62,9 +62,13 @@ function create(handlers, resume, botLevel, superHy) {
       if (stopped) return;
       var s = w[0];
       var a = null;
-      if (botLevel !== 'easy' && game.phase === 'play' && game.turnSeat === s && !game.playedFirst[s] &&
-          !game.tichu[s] && B.botTichu(game.hands[s])) {
+      var wantTichu = game.phase === 'play' && game.turnSeat === s && !game.playedFirst[s] && !game.tichu[s] &&
+        (botLevel === 'super' && declNet ? declNet.tichu(game.hands[s])
+          : (botLevel !== 'easy' && botLevel !== 'super' && B.botTichu(game.hands[s])));
+      if (wantTichu) {
         a = { type: 'call_tichu', seat: s };
+      } else if (botLevel === 'super' && declNet && game.phase === 'grand' && !game.grandAnswered[s]) {
+        a = { type: 'call_grand', seat: s, call: declNet.grand(game.hands[s]) }; // 선언 신경망
       } else if (botLevel === 'super' && game.phase === 'play' && game.turnSeat === s && game.finished.indexOf(s) < 0) {
         a = superHy.decidePlus(game, s, hist, { budgetMs: 900 });
       } else {

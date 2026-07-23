@@ -19,6 +19,10 @@ var hyTemp = +process.argv[9] || 1;    // 본 하이브리드의 프라이어 �
 globalThis.__TICHU_HARD = { samples: 999999, budgetMs: oppMs };
 
 var hy = HY.create(wPath);
+// 선언 신경망(있으면 하이브리드 측 그랜드/티츄 판단에 사용 — 배포 구성과 동일)
+var DECL = require(path.join(__dirname, '..', 'shared', 'declare.js'));
+var decl = null;
+try { decl = DECL.load(path.join(__dirname, '..', 'shared', 'weights-declare.json')); } catch (e) {}
 // 상대가 'hy:<weights.json>[:temp]'이면 챔피언끼리 대결(승단전용)
 var oppHy = null, oppHyTemp = 1;
 if (oppLevel.indexOf('hy:') === 0) {
@@ -29,11 +33,18 @@ if (oppLevel.indexOf('hy:') === 0) {
 }
 
 function hyDecide(g, seat, hist) {
+  if (decl && g.phase === 'grand' && !g.grandAnswered[seat]) {
+    return { type: 'call_grand', seat: seat, call: decl.grand(g.hands[seat]) };
+  }
+  if (decl && g.phase === 'play' && g.turnSeat === seat && !g.playedFirst[seat] &&
+      !g.tichu[seat] && g.finished.indexOf(seat) < 0 && decl.tichu(g.hands[seat])) {
+    return { type: 'call_tichu', seat: seat };
+  }
   if (g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
     if (mode === 'plus') return hy.decidePlus(g, seat, hist, { budgetMs: hyMs, temp: hyTemp });
     return hy.decide(g, seat, hist, { budgetMs: hyMs });
   }
-  return B.botDecide(g, seat, 'normal'); // 선언·교환·소원·용 — 고수와 동일 휴리스틱
+  return B.botDecide(g, seat, 'normal'); // 교환·소원·용 — 휴리스틱 유지
 }
 function oppHyDecide(g, seat, hist) {
   if (g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {

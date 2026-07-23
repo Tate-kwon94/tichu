@@ -336,22 +336,26 @@ function ensureOnline(cb) {
   state.session = OnlineSession.create(handlers);
   state.session.connect(state.name);
 }
-var superHyCache = null; // 초고수 신경망 — 첫 사용 시 가중치(~3MB) 내려받아 캐시
+var superHyCache = null;   // 초고수 신경망 — 첫 사용 시 가중치(~3MB) 내려받아 캐시
+var declNetCache = null;   // 선언 신경망(~130KB)
 function startSolo(resume) {
   destroySession();
   if (!resume) OfflineSession.clearSave();
   if (state.botLevel === 'super') {
     if (superHyCache) {
-      state.session = OfflineSession.create(handlers, resume, 'super', superHyCache);
+      state.session = OfflineSession.create(handlers, resume, 'super', superHyCache, declNetCache);
       state.conn = { s: '', mode: 'offline' };
       return;
     }
     toast('초고수 준비 중…');
-    fetch('shared/weights-super.json')
-      .then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.json(); })
-      .then(function (w) {
-        superHyCache = TichuHybrid.create(TichuNet.create(w));
-        state.session = OfflineSession.create(handlers, resume, 'super', superHyCache);
+    Promise.all([
+      fetch('shared/weights-super.json').then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.json(); }),
+      fetch('shared/weights-declare.json').then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; })
+    ])
+      .then(function (ws) {
+        superHyCache = TichuHybrid.create(TichuNet.create(ws[0]));
+        if (ws[1]) declNetCache = TichuDeclare.create(ws[1]);
+        state.session = OfflineSession.create(handlers, resume, 'super', superHyCache, declNetCache);
         state.conn = { s: '', mode: 'offline' };
       })
       .catch(function () {

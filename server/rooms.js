@@ -16,6 +16,15 @@ function getSuperBot() {
   }
   return superBot;
 }
+// 선언(티츄/라지) 신경망 — 66만 라운드 학습, EV 보정 임계
+var declNet = null;
+function getDeclare() {
+  if (!declNet) {
+    var DECL = require(path.join(__dirname, '..', 'shared', 'declare.js'));
+    declNet = DECL.load(path.join(__dirname, '..', 'shared', 'weights-declare.json'));
+  }
+  return declNet;
+}
 
 // 플레이 이력(라운드 내 최근 수) — 초고수 신경망 입력. 라운드 경계에서 리셋
 function trackHist(room, act, g) {
@@ -199,9 +208,14 @@ function botAct(room, seat) {
   if (g.waitingOn().indexOf(seat) < 0) { scheduleBots(room); return; }
   var p = room.seats[seat];
   var a = null;
-  if (p && p.isBot && room.botLevel !== 'easy' && g.phase === 'play' && g.turnSeat === seat &&
-      !g.playedFirst[seat] && !g.tichu[seat] && B.botTichu(g.hands[seat])) {
+  var superTichu = room.botLevel === 'super' && p && p.isBot && g.phase === 'play' && g.turnSeat === seat &&
+    !g.playedFirst[seat] && !g.tichu[seat] && getDeclare().tichu(g.hands[seat]);
+  var heurTichu = room.botLevel !== 'super' && p && p.isBot && room.botLevel !== 'easy' && g.phase === 'play' &&
+    g.turnSeat === seat && !g.playedFirst[seat] && !g.tichu[seat] && B.botTichu(g.hands[seat]);
+  if (superTichu || heurTichu) {
     a = { type: 'call_tichu', seat: seat };
+  } else if (room.botLevel === 'super' && g.phase === 'grand' && !g.grandAnswered[seat]) {
+    a = { type: 'call_grand', seat: seat, call: getDeclare().grand(g.hands[seat]) }; // 선언 신경망
   } else if (room.botLevel === 'super' && g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
     a = getSuperBot().decidePlus(g, seat, room.playHist || [], { budgetMs: 950 });
   } else {

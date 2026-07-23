@@ -1,5 +1,5 @@
 /* 서비스워커 — 정적 자산 캐시(오프라인 혼자 연습), 네트워크 우선(업데이트 안전) */
-var VERSION = 'tichu-v19';
+var VERSION = 'tichu-v20';
 var ASSETS = [
   './',
   'index.html',
@@ -12,6 +12,7 @@ var ASSETS = [
   'shared/bots.js',
   'shared/net-infer.js',
   'shared/hybrid-bot.js',
+  'shared/declare.js',
   'manifest.webmanifest',
   'icons/icon.svg',
   'icons/xlsx.svg',
