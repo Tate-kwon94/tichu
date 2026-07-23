@@ -22,6 +22,7 @@ var state = {
   office: false,         // 엑셀 위장 모드
   xlStyle: '',           // 위장 카드 시안: ''=기존 카드형, '1'=셀+무늬, '2'=셀+문자코드, '3'=셀+숫자만
   ghost: 0,              // 반투명 모드 0=끔 1=연하게 2=아주 연하게 (위장과 병행 가능)
+  lastDeclKey: null,     // 마지막으로 알린 티츄/라지 선언 (중복 토스트 방지)
   passId: null,          // 마지막 패스 actionId — 경합 거부 시 자동 재시도
   retryPass: false,      // 새 상태 도착 시 패스 1회 재전송
   composing: false,      // 한글 IME 조합 중 (재렌더가 조합을 끊지 않게)
@@ -67,6 +68,24 @@ function seatName(s) {
   return rs.name || (rs.isBot ? STR.bot : '?');
 }
 function relSeat(rel) { return (mySeat() + rel) % 4; }
+// 티츄/라지 티츄 선언을 눈에 띄게 알림 — 새 선언일 때 한 번만 토스트
+function announceDeclare(snap) {
+  var g = snap && snap.game;
+  var la = g && g.lastAction;
+  if (la && (la.kind === 'tichu' || la.kind === 'grand') && la.seat != null) {
+    var key = la.kind + ':' + la.seat + ':' + g.round;
+    if (key !== state.lastDeclKey) {
+      state.lastDeclKey = key;
+      var who = la.seat === snap.youSeat ? STR.you : seatName(la.seat);
+      var what = la.kind === 'grand' ? STR.grandBadge + ' 티츄' : STR.tichuBadge + ' 티츄';
+      var em = state.office ? '' : '🔴 ';
+      toast(em + who + ' — ' + what + ' 선언!', { ms: 3500 });
+      if (la.seat !== snap.youSeat && navigator.vibrate) { try { navigator.vibrate(40); } catch (e) {} }
+    }
+  } else if (la && la.kind !== 'tichu' && la.kind !== 'grand') {
+    state.lastDeclKey = null; // 다음 선언(같은 사람이라도)을 다시 알릴 수 있게 리셋
+  }
+}
 function isHost() { return state.snap && state.snap.hostSeat === mySeat(); }
 function myTurn() {
   var g = game();
@@ -243,6 +262,7 @@ var handlers = {
   onState: function (snap) {
     state.snap = snap;
     state.screen = 'game';
+    announceDeclare(snap);
     reconcile();
     render();
     // 패스가 봇 수와 경합해 STALE로 거부됐다면, 새 상태에서 여전히 유효할 때 1회 자동 재전송
