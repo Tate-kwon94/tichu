@@ -275,7 +275,9 @@ function botPlayEasy(game, seat) {
 function cloneGame(game) { return game.clone ? game.clone() : C.Game.fromJSON(game.toJSON()); }
 // 미관측 카드를 상대 손패 수에 맞춰 무작위 재분배(결정화)
 // 확정 정보 활용: 내가 교환으로 건넨 카드는 (아직 안 나왔다면) 받은 사람 손에 반드시 있음
-function determinize(game, seat) {
+// constraints(선택): { maxPassSingle: {seat: rank} } — 그 좌석은 rank 초과 싱글이 없을 확률 높음(상대 패 읽기).
+// 낮은 패스(≤8)만 신뢰(측정: 전략적 보유 6.5%)해 소프트 교정. 하드 아님 — 위반을 확률적으로만 스왑.
+function determinize(game, seat, constraints) {
   var g = cloneGame(game);
   var others = [], pool = [];
   for (var s = 0; s < 4; s++) if (s !== seat) { others.push(s); pool = pool.concat(g.hands[s]); }
@@ -295,6 +297,33 @@ function determinize(game, seat) {
     var os = others[o], pin = pinned[os] || [];
     var cnt = g.hands[os].length - pin.length;
     g.hands[os] = pin.concat(pool.slice(k, k + cnt)); k += cnt;
+  }
+  // ③ 상대 패 읽기: 낮은 패스 제약 위반을 소프트 교정 (좌석 X가 rank R에 패스 → X의 R초과 싱글을 다른 좌석과 스왑)
+  var mp = constraints && constraints.maxPassSingle;
+  if (mp) {
+    for (var oi = 0; oi < others.length; oi++) {
+      var x = others[oi], r = mp[x];
+      if (r == null || r > 8) continue; // 신뢰 구간(≤8)만
+      var hand = g.hands[x];
+      for (var ci = 0; ci < hand.length; ci++) {
+        var id = hand[ci];
+        if (isSpecial(id) || rankOf(id) <= r) continue; // 위반(R초과 싱글)만
+        if (Math.random() < 0.25) continue;             // 소프트: 25%는 전략적 보유로 남겨둠
+        // 제약 없는(또는 이 카드 허용) 다른 좌석 y의 카드와 스왑
+        for (var yi = 0; yi < others.length; yi++) {
+          var y = others[yi]; if (y === x) continue;
+          var ry = mp[y];
+          if (ry != null && ry <= 8 && rankOf(id) > ry) continue; // y도 이 카드 못 받음
+          var yh = g.hands[y], swapped = false;
+          for (var yj = 0; yj < yh.length; yj++) {
+            var yid = yh[yj];
+            // y가 넘겨줄 카드는 x가 받아도 제약 안 어겨야(≤r 또는 특수 아닌 저랭크)
+            if (!isSpecial(yid) && rankOf(yid) <= r) { hand[ci] = yid; yh[yj] = id; swapped = true; break; }
+          }
+          if (swapped) break;
+        }
+      }
+    }
   }
   return g;
 }

@@ -121,6 +121,25 @@ function create(netOrPath) {
     return cost;
   }
 
+  // Phase 3: 이력에서 "각 좌석이 싱글에 패스한 최대 랭크" 추출. 그 좌석은 해당 랭크 초과 싱글이 없을 확률↑.
+  // cur(따라가는 콤보)를 재구성 — 새 플레이는 cur 갱신, 개는 리셋, 패스는 cur 유지(그때 못 이긴 것).
+  function passConstraints(hist) {
+    var cur = null, mp = {};
+    for (var i = 0; i < hist.length; i++) {
+      var h = hist[i];
+      if (h.t === 'pass') {
+        if (cur && cur.t === 'single' && cur.r >= 2 && cur.r <= 14) {
+          if (mp[h.s] == null || cur.r < mp[h.s]) mp[h.s] = cur.r; // 가장 낮은 패스 랭크(가장 강한 제약)
+        }
+      } else if (h.t === 'dog') {
+        cur = null;
+      } else {
+        cur = { t: h.t, r: h.r };
+      }
+    }
+    return mp;
+  }
+
   // Phase 2: 보유 가치(아끼기) — 강카드를 이번 수로 소비하는 기회비용을 평가에 반영(v-space 음수).
   // 시뮬 평균이 희석하는 "아꼈다 결정적일 때 쓴다"의 가치를 명시화. 3가지로 감쇠(지금 쓸 값어치·위협·종반).
   function holdBonus(g, seat, cand) {
@@ -182,6 +201,8 @@ function create(netOrPath) {
         holdV = new Float64Array(K);
         for (var hi = 0; hi < K; hi++) holdV[hi] = holdBonus(game, seat, cands[hi]);
       }
+      // ③ 상대 패 읽기: 이력에서 "각 좌석이 싱글에 패스한 최대 랭크" 추출 → 결정화 제약
+      var constraints = (opts && opts.oppRead) ? { maxPassSingle: passConstraints(hist) } : null;
       var Q = new Float64Array(K), N = new Int32Array(K), totalN = 0;
       var deadline = Date.now() + budget, rep = 0;
       while (Date.now() < deadline && rep < 2000) {
@@ -192,7 +213,7 @@ function create(netOrPath) {
           var q = N[i] ? Q[i] : 0; // 미방문은 Q=0(중립) — 탐험항이 첫 방문 유도
           if (q + u > bv) { bv = q + u; best = i; }
         }
-        var det = B.determinize(game, seat);
+        var det = B.determinize(game, seat, constraints); // ③ 제약 반영 결정화
         var sim = det.clone ? det.clone() : B.cloneGame(det);
         var h2 = hist.slice();
         if (applyCand(sim, seat, cands[best], h2)) {
