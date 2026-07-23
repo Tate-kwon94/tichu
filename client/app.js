@@ -367,7 +367,7 @@ function startSolo(resume) {
       state.conn = { s: '', mode: 'offline' };
       return;
     }
-    toast('초고수 준비 중…');
+    toast('1단 봇 준비 중…', { ms: 4000 });
     Promise.all([
       fetch('shared/weights-super.json').then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.json(); }),
       fetch('shared/weights-declare.json').then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; })
@@ -379,7 +379,7 @@ function startSolo(resume) {
         state.conn = { s: '', mode: 'offline' };
       })
       .catch(function () {
-        toast('초고수 로드 실패 — 고수로 시작합니다');
+        toast('1단 봇 로드 실패 — 기본 봇으로 시작합니다', { ms: 4000, warn: true });
         state.session = OfflineSession.create(handlers, resume, 'hard');
         state.conn = { s: '', mode: 'offline' };
       });
@@ -662,22 +662,21 @@ function roomListHtml() {
 }
 // full=true(혼자 연습): 4단계 전부. full=false(온라인 로비): 쉬움/보통만(서버 보호·공정성)
 function botLevelPicker(full) {
-  // 혼자 연습: 쉬움~악마+초고수 (초고수 신경망은 첫 시작 때 내려받아 기기에서 구동)
-  // 온라인 로비: 쉬움~초고수 (악마는 상대 패 열람이라 사람에게 불공정 → 제외)
+  // 단(段) 체계: 현재 1단(super)만 존재 — 승급전(직전 단 65% 격파) 통과 시 2단·3단 추가.
+  // 혼자 연습엔 악마(상대 패 열람, 등급 밖 치트) 포함. 온라인은 공정성 위해 단만.
+  // (내부 봇키 super=1단. 쉬움/보통/고수 엔진은 코드에 남아있으나 피커에서 제외 — 룰 아는 사용자 전제)
   var opts = full
-    ? [['easy', STR.botEasy], ['normal', STR.botNormal], ['hard', STR.botHard], ['super', STR.botSuper], ['devil', STR.botDevil]]
-    : [['easy', STR.botEasy], ['normal', STR.botNormal], ['hard', STR.botHard], ['super', STR.botSuper]];
-  var lv = full ? state.botLevel
-    : (state.botLevel === 'devil' ? 'hard' : state.botLevel);  // 온라인에서 악마 선택값은 고수로
-  var hint = (lv === 'hard') ? STR.botHintHard
-    : (lv === 'super') ? STR.botHintSuper
-    : (full && lv === 'devil') ? STR.botHintDevil : '';
+    ? [['super', STR.botDan1], ['devil', STR.botDevil]]
+    : [['super', STR.botDan1]];
+  var lv = (state.botLevel === 'devil' && full) ? 'devil' : 'super'; // 온라인·비악마는 1단으로 고정
+  var hint = (lv === 'devil') ? STR.botHintDevil : STR.botHintDan1;
   return '<div class="targetRow botRow"><span class="targetLbl">' + STR.botLevelLbl + '</span>' +
     opts.map(function (o) {
-      return '<button class="btn small ' + (lv === o[0] ? (o[0] === 'devil' ? 'danger' : o[0] === 'super' ? 'gold' : 'primary') : 'ghost') +
+      return '<button class="btn small ' + (lv === o[0] ? (o[0] === 'devil' ? 'danger' : 'gold') : 'ghost') +
         '" data-act="botlevel" data-l="' + o[0] + '">' + o[1] + '</button>';
     }).join('') + '</div>' +
-    (hint ? '<div class="botHint">' + hint + '</div>' : '');
+    '<div class="botHint">' + hint + '</div>' +
+    '<div class="botHint" style="opacity:.6">' + STR.botHintDanNext + '</div>';
 }
 
 function renderGame() {
@@ -1177,14 +1176,14 @@ function onClick(e) {
     case 'bot-del': send({ type: 'remove_bot', seat: seat }); break;
     case 'kick': send({ type: 'kick_player', seat: seat }); break;
     case 'start': {
-      var onLv = state.botLevel === 'devil' ? 'hard' : state.botLevel; // 온라인은 악마 불가 → 고수로
-      send({ type: 'start_game', targetScore: state.lobbyTarget, botLevel: onLv }); // super는 그대로 전달
+      // 온라인은 현재 1단(super)만 — 악마/구등급 선택값은 1단으로. (2단 추가 시 여기 확장)
+      send({ type: 'start_game', targetScore: state.lobbyTarget, botLevel: 'super' });
       break;
     }
     case 'target': state.lobbyTarget = +el.getAttribute('data-n'); render(); break;
     case 'botlevel': {
       var lv = el.getAttribute('data-l');
-      state.botLevel = ['easy', 'normal', 'hard', 'devil', 'super'].indexOf(lv) >= 0 ? lv : 'normal';
+      state.botLevel = ['devil', 'super'].indexOf(lv) >= 0 ? lv : 'super'; // 1단(super) 기본
       try { localStorage.setItem('tichu.botlevel', state.botLevel); } catch (e3) {}
       render();
       break;

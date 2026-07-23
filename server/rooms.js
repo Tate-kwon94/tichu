@@ -217,7 +217,7 @@ function botAct(room, seat) {
   } else if (room.botLevel === 'super' && g.phase === 'grand' && !g.grandAnswered[seat]) {
     a = { type: 'call_grand', seat: seat, call: getDeclare().grand(g.hands[seat]) }; // 선언 신경망
   } else if (room.botLevel === 'super' && g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
-    a = getSuperBot().decidePlus(g, seat, room.playHist || [], { budgetMs: 950 });
+    a = getSuperBot().decidePuct(g, seat, room.playHist || [], { budgetMs: 950, c: 1.0 });
   } else {
     // 초고수의 선언·교환·소원·용은 고수와 같은 휴리스틱(botDecide는 미지 레벨을 보통으로 처리)
     a = B.botDecide(g, seat, room.botLevel);
@@ -528,8 +528,8 @@ function handle(player, a) {
       for (var f = 0; f < 4; f++) if (!room.seats[f]) room.seats[f] = makeBot(f, room);
       var ts = (a.targetScore === 300 || a.targetScore === 500 || a.targetScore === 1000) ? a.targetScore : 1000;
       room.targetScore = ts;
-      // 온라인은 쉬움/보통/고수/초고수. 고수·초고수 탐색은 950ms 시간컷 — 동시 1게임 수준 트래픽 전제
-      // 초고수(v16) = 신경망 프라이어·가지치기 + 탐색 하이브리드 (고수950 상대 65% 실측)
+      // 온라인 봇: 'super'(내부 키 유지) = 사용자 표기 "1단". 탐색은 950ms 시간컷(동시 1게임 전제)
+      // 1단 = v6 신경망(폭2배) + PUCT(c=1.0) 하이브리드. v3-챔피언+ 직접 58.8%로 이겨 승격(고수950 대비 ~60%)
       // 악마(상대 패 열람)는 사람에게 불공정 → 제외
       room.botLevel = ['easy', 'normal', 'hard', 'super'].indexOf(a.botLevel) >= 0 ? a.botLevel : 'normal';
       room.playHist = [];
