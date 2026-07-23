@@ -208,14 +208,16 @@ function botAct(room, seat) {
   if (g.waitingOn().indexOf(seat) < 0) { scheduleBots(room); return; }
   var p = room.seats[seat];
   var a = null;
+  // 선언 신경망에 게임 점수 맥락 전달 (Phase 1: 뒤지면 도박, 앞서면 자제)
+  var declCtx = { my: g.scores[seat % 2], opp: g.scores[1 - (seat % 2)], tgt: g.targetScore };
   var superTichu = room.botLevel === 'super' && p && p.isBot && g.phase === 'play' && g.turnSeat === seat &&
-    !g.playedFirst[seat] && !g.tichu[seat] && getDeclare().tichu(g.hands[seat]);
+    !g.playedFirst[seat] && !g.tichu[seat] && getDeclare().tichu(g.hands[seat], declCtx);
   var heurTichu = room.botLevel !== 'super' && p && p.isBot && room.botLevel !== 'easy' && g.phase === 'play' &&
     g.turnSeat === seat && !g.playedFirst[seat] && !g.tichu[seat] && B.botTichu(g.hands[seat]);
   if (superTichu || heurTichu) {
     a = { type: 'call_tichu', seat: seat };
   } else if (room.botLevel === 'super' && g.phase === 'grand' && !g.grandAnswered[seat]) {
-    a = { type: 'call_grand', seat: seat, call: getDeclare().grand(g.hands[seat]) }; // 선언 신경망
+    a = { type: 'call_grand', seat: seat, call: getDeclare().grand(g.hands[seat], declCtx) }; // 선언 신경망
   } else if (room.botLevel === 'super' && g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
     a = getSuperBot().decidePuct(g, seat, room.playHist || [], { budgetMs: 950, c: 1.0 });
   } else {

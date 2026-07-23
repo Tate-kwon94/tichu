@@ -62,13 +62,14 @@ function create(handlers, resume, botLevel, superHy, declNet) {
       if (stopped) return;
       var s = w[0];
       var a = null;
+      var declCtx = { my: game.scores[s % 2], opp: game.scores[1 - (s % 2)], tgt: game.targetScore };
       var wantTichu = game.phase === 'play' && game.turnSeat === s && !game.playedFirst[s] && !game.tichu[s] &&
-        (botLevel === 'super' && declNet ? declNet.tichu(game.hands[s])
+        (botLevel === 'super' && declNet ? declNet.tichu(game.hands[s], declCtx)
           : (botLevel !== 'easy' && botLevel !== 'super' && B.botTichu(game.hands[s])));
       if (wantTichu) {
         a = { type: 'call_tichu', seat: s };
       } else if (botLevel === 'super' && declNet && game.phase === 'grand' && !game.grandAnswered[s]) {
-        a = { type: 'call_grand', seat: s, call: declNet.grand(game.hands[s]) }; // 선언 신경망
+        a = { type: 'call_grand', seat: s, call: declNet.grand(game.hands[s], declCtx) }; // 선언 신경망
       } else if (botLevel === 'super' && game.phase === 'play' && game.turnSeat === s && game.finished.indexOf(s) < 0) {
         a = superHy.decidePuct(game, s, hist, { budgetMs: 900, c: 1.0 });
       } else {

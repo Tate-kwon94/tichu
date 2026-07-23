@@ -63,11 +63,26 @@ function create(raw) {
   var cal = raw.calib || {};
   var thT = cal.tichuThreshold != null ? cal.tichuThreshold : 0.5;
   var thG = cal.grandThreshold != null ? cal.grandThreshold : 0.52;
+
+  // 게임 점수 상황에 따른 선언 임계 조정 (Phase 1: 위험 조절).
+  // 뒤지면 임계↓(도박적 선언), 앞서면 임계↑(자제). 막판일수록 효과 강화, 뒤질 때 비대칭 증폭.
+  // ctx = { my, opp, tgt } (없으면 base 그대로 — 하위호환)
+  function adjust(base, ctx) {
+    if (!ctx || ctx.tgt == null) return base;
+    var tgt = Math.max(ctx.tgt, 1);
+    var margin = (ctx.my - ctx.opp) / tgt;                 // + 앞섬, − 뒤짐 (대략 −1..1)
+    var late = Math.min(1, Math.max(ctx.my, ctx.opp, 0) / tgt); // 막판도 0..1
+    var asym = margin < 0 ? 1.5 : 1.0;                     // 뒤질 때 공격성 1.5배 증폭
+    var shift = 0.12 * margin * asym * (0.4 + 0.6 * late);// 앞서면 +(임계↑), 뒤지면 −(임계↓)
+    return Math.max(0.30, Math.min(0.80, base + shift));  // 임계 하한 0.30·상한 0.80
+  }
+
   return {
     pFirst14: pT,
     pFirst8: pG,
-    tichu: function (hand14) { return pT(hand14) >= thT; },   // 스몰 티츄 선언 판단
-    grand: function (hand8) { return pG(hand8) >= thG; }      // 라지 티츄 선언 판단
+    adjust: adjust,
+    tichu: function (hand14, ctx) { return pT(hand14) >= adjust(thT, ctx); }, // 스몰 티츄
+    grand: function (hand8, ctx) { return pG(hand8) >= adjust(thG, ctx); }    // 라지 티츄
   };
 }
 
