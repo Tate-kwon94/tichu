@@ -119,9 +119,11 @@ function relu(x) { for (var i = 0; i < x.length; i++) if (x[i] < 0) x[i] = 0; re
 function create(raw) {
   var W = {};
   Object.keys(raw).forEach(function (k) { W[k] = raw[k] instanceof Float32Array ? raw[k] : b64ToF32(raw[k].b64); });
-  var b1 = new Float32Array(512), b2 = new Float32Array(256), ba = new Float32Array(128),
-      h1 = new Float32Array(256), ho = new Float32Array(1),
-      v1 = new Float32Array(64), vo = new Float32Array(1);
+  // 버퍼 크기는 가중치에서 유도 — 모델 폭이 달라도 동작
+  var b1 = new Float32Array(W['se.0.bias'].length), b2 = new Float32Array(W['se.2.bias'].length),
+      ba = new Float32Array(W['ae.0.bias'].length),
+      h1 = new Float32Array(W['head.0.bias'].length), ho = new Float32Array(1),
+      v1 = new Float32Array(W['vhead.0.bias'].length), vo = new Float32Array(1);
   function stateEmb(sv) {
     linear(W['se.0.weight'], W['se.0.bias'], sv, b1); relu(b1);
     linear(W['se.2.weight'], W['se.2.bias'], b1, b2); relu(b2);
@@ -129,8 +131,8 @@ function create(raw) {
   }
   function score(z, av) {
     linear(W['ae.0.weight'], W['ae.0.bias'], av, ba); relu(ba);
-    var cat = new Float32Array(256 + 128);
-    cat.set(z, 0); cat.set(ba, 256);
+    var cat = new Float32Array(b2.length + ba.length);
+    cat.set(z, 0); cat.set(ba, b2.length);
     linear(W['head.0.weight'], W['head.0.bias'], cat, h1); relu(h1);
     linear(W['head.2.weight'], W['head.2.bias'], h1, ho);
     return ho[0];

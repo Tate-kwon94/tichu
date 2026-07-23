@@ -130,14 +130,15 @@ def load(files, cap=None):
     return data
 
 class Net(nn.Module):
-    def __init__(self):
+    def __init__(self, w=1.0):
         super().__init__()
-        self.se = nn.Sequential(nn.Linear(S_DIM, 512), nn.ReLU(),
-                                nn.Linear(512, 256), nn.ReLU())
-        self.ae = nn.Sequential(nn.Linear(A_DIM, 128), nn.ReLU())
-        self.head = nn.Sequential(nn.Linear(256 + 128, 256), nn.ReLU(),
-                                  nn.Linear(256, 1))
-        self.vhead = nn.Sequential(nn.Linear(256, 64), nn.ReLU(), nn.Linear(64, 1))
+        h1, h2, ha, hh, hv = int(512*w), int(256*w), int(128*w), int(256*w), int(64*w)
+        self.se = nn.Sequential(nn.Linear(S_DIM, h1), nn.ReLU(),
+                                nn.Linear(h1, h2), nn.ReLU())
+        self.ae = nn.Sequential(nn.Linear(A_DIM, ha), nn.ReLU())
+        self.head = nn.Sequential(nn.Linear(h2 + ha, hh), nn.ReLU(),
+                                  nn.Linear(hh, 1))
+        self.vhead = nn.Sequential(nn.Linear(h2, hv), nn.ReLU(), nn.Linear(hv, 1))
 
     def forward(self, s, a_pad, mask):
         # s: [B,S]  a_pad: [B,K,A]  mask: [B,K] (True=실제 후보)
@@ -185,6 +186,7 @@ def main():
     ap.add_argument("--out", default="pilot-weights.pt")
     ap.add_argument("--init", default=None, help="이어학습: 기존 가중치에서 시작")
     ap.add_argument("--lr", type=float, default=1e-3)
+    ap.add_argument("--width", type=float, default=1.0, help="모델 폭 배수 (2.0 = 약 4배 파라미터)")
     args = ap.parse_args()
 
     dev = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
@@ -193,7 +195,7 @@ def main():
     va = load([args.val], cap=40000)
     print(f"val {len(va)} decisions", flush=True)
 
-    net = Net().to(dev)
+    net = Net(args.width).to(dev)
     if args.init:
         net.load_state_dict(torch.load(args.init, map_location="cpu"))
         print("init from:", args.init)
