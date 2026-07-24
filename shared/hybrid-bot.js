@@ -76,6 +76,25 @@ function create(netOrPath) {
     }
   }
 
+  // ④ 오라클 말단 평가 — 결정화된 세계(4명 패 확정)를 가치망 1회로 평가.
+  // 플레이아웃이 그 세계를 "한 번 둬본 표본 1개"로 재는 것을, 기댓값 한 방으로 대체한다.
+  // 봇이 아는 정보는 늘지 않는다: 그 완전정보는 결정화가 방금 지어낸 가상 세계의 것이고,
+  // 여러 세계에 평균 내는 구조는 그대로다(= 지금 플레이아웃이 하는 일과 동일).
+  function oracleEval(sim, seat, oracle) {
+    var guard = 0;
+    // 용 증정 등 중간 국면은 학습 분포 밖 — 한두 수 진행시켜 play 국면으로 되돌린다
+    while (sim.phase !== 'play' && sim.phase !== 'roundEnd' && sim.phase !== 'gameEnd' && ++guard < 8) {
+      var w = sim.waitingOn(); if (!w.length) break;
+      var a = B.botDecide(sim, w[0], 'normal'); if (!a || !sim.apply(a).ok) break;
+    }
+    if (sim.phase === 'roundEnd' || sim.phase === 'gameEnd') {  // 이미 끝났으면 실제 결과가 정답
+      var d = sim.roundSummary ? sim.roundSummary.deltas : { teamA: 0, teamB: 0 };
+      var delta = (seat % 2 === 0) ? (d.teamA - d.teamB) : (d.teamB - d.teamA);
+      return Math.max(-2, Math.min(2, delta / 100));
+    }
+    return Math.max(-2, Math.min(2, oracle.value(sim, seat)));
+  }
+
   // 휴리스틱('보통') 플레이아웃 — 라운드 끝까지 (챔피언+ 평가)
   function heuristicPlayout(sim, seat, deadline) {
     var myTeamEven = seat % 2 === 0;
@@ -203,9 +222,16 @@ function create(netOrPath) {
       }
       // ③ 상대 패 읽기: 이력에서 "각 좌석이 싱글에 패스한 최대 랭크" 추출 → 결정화 제약
       var constraints = (opts && opts.oppRead) ? { maxPassSingle: passConstraints(hist) } : null;
+      // ④ 오라클 말단 평가(있으면 플레이아웃 대신). oracleMix는 안전판 — 그 비율만큼은 여전히
+      //    실제 플레이아웃으로 재서, 가치망이 통째로 틀린 영역을 탐색이 물고 늘어지는 사고를 막는다.
+      var oracle = (opts && opts.oracle) || null;
+      var oracleMix = (opts && opts.oracleMix) || 0;
       var Q = new Float64Array(K), N = new Int32Array(K), totalN = 0;
       var deadline = Date.now() + budget, rep = 0;
-      while (Date.now() < deadline && rep < 2000) {
+      // 반복 상한: 플레이아웃(≈650µs)은 950ms에 1,500회라 2000이 안 걸리지만,
+      // 오라클(≈100µs)은 2000에서 예산 대부분을 남기고 멈춘다. 오라클일 때만 상한을 푼다(1단 경로 불변).
+      var repCap = (opts && opts.repCap) || (oracle ? 40000 : 2000);
+      while (Date.now() < deadline && rep < repCap) {
         // PUCT 선택
         var best = -1, bv = -Infinity, sqrtT = Math.sqrt(totalN + 1);
         for (var i = 0; i < K; i++) {
@@ -217,7 +243,9 @@ function create(netOrPath) {
         var sim = det.clone ? det.clone() : B.cloneGame(det);
         var h2 = hist.slice();
         if (applyCand(sim, seat, cands[best], h2)) {
-          var v = Math.max(-2, Math.min(2, heuristicPlayout(sim, seat, deadline) / 100));
+          var v = (oracle && (!oracleMix || Math.random() >= oracleMix))
+            ? oracleEval(sim, seat, oracle)
+            : Math.max(-2, Math.min(2, heuristicPlayout(sim, seat, deadline) / 100));
           if (holdV) v += holdV[best]; // 강카드 소비 억제 = 아끼기
           Q[best] += (v - Q[best]) / (N[best] + 1); // 러닝 평균
           N[best]++; totalN++;
@@ -226,12 +254,146 @@ function create(netOrPath) {
         }
         rep++;
       }
+      // 계측: 결정당 시뮬 수. 이게 없으면 승단전 결과에서 "효과가 없다"와
+      // "CPU가 굶어서 탐색이 아예 일어나지 않았다"를 구분할 수 없다.
+      if (globalThis.__TICHU_STAT) { globalThis.__TICHU_STAT.sims += rep; globalThis.__TICHU_STAT.dec++; }
       // 최종: 최다 방문 (동률이면 Q 높은 쪽)
       var pick = 0, bn = -1;
       for (var j = 0; j < K; j++) {
         if (N[j] > bn || (N[j] === bn && Q[j] > Q[pick])) { bn = N[j]; pick = j; }
       }
       return finishAction(game, seat, cands[pick]);
+    },
+
+    // ⑥ 롤아웃 티츄 선언 (2단 후보) — 손패 점수 임계값 대신 "먼저 나갈 확률"을 실제로 세어본다.
+    //
+    // 티츄는 맞으면 +100, 틀리면 −100이라 판돈이 카드 한 장 고르기(측정 5점)의 40배다.
+    // 그런데 1단은 선언망의 손패 점수 하나로 결정하고, 그 추정은 롤아웃 참값과 상관 0.657에
+    // 분포가 절반으로 눌려 있다(sd 0.133 vs 0.263) → 손패의 3%에서만 선언한다.
+    // 실제로 먼저 나가는 손패는 23%다. 사실상 "티츄를 안 하는 봇"이다.
+    //
+    // 주의: 롤아웃 정책이 보통봇이라 p에 체계적 편향이 있다(내가 실제보다 약하게 두고,
+    // 상대는 내 티츄를 저지하지 않는다). 카드 놓기와 달리 여기서는 p>임계 하나로 결정이 갈려
+    // 편향이 평균으로 지워지지 않는다. 그래서 calA/calB로 선형 보정하고 임계값을 따로 둔다.
+    declareTichu: function (game, seat, opts) {
+      var budget = (opts && opts.budgetMs) || 200;
+      var th = (opts && opts.th != null) ? opts.th : 0.5;
+      var maxN = (opts && opts.maxN) || 600;
+      var calA = (opts && opts.calA != null) ? opts.calA : 0;   // p_보정 = calA + calB·p_롤아웃
+      var calB = (opts && opts.calB != null) ? opts.calB : 1;
+      var deadline = Date.now() + budget, hit = 0, n = 0;
+      while (Date.now() < deadline && n < maxN) {
+        var det = B.determinize(game, seat);
+        var sim = det.clone ? det.clone() : B.cloneGame(det);
+        if (!sim.apply({ type: 'call_tichu', seat: seat }).ok) sim.tichu[seat] = 100;
+        var guard = 0;
+        // 누가 먼저 나갔는지만 알면 되므로 firstOutSeat가 정해지는 즉시 중단 — 롤아웃 비용 절반
+        while (sim.firstOutSeat == null && sim.phase !== 'roundEnd' && sim.phase !== 'gameEnd' && ++guard < 2000) {
+          var w = sim.waitingOn(); if (!w.length) break;
+          var a = B.botDecide(sim, w[0], 'normal');
+          if (!a || !sim.apply(a).ok) break;
+        }
+        if (sim.firstOutSeat === seat) hit++;
+        n++;
+      }
+      var p = n ? hit / n : 0;
+      var pc = Math.max(0, Math.min(1, calA + calB * p));
+      return { p: p, pCal: pc, n: n, declare: pc >= th };
+    },
+
+    // ⑤ Sequential Halving 뿌리 배분 (2단 후보) — PUCT와 같은 부품, 예산 배분만 다르다.
+    //
+    // 왜 바꾸는가: 뿌리에서 우리가 원하는 건 "탐색이 끝났을 때 최선을 고르는 것"(단순 후회)이지
+    // "탐색 도중 나쁜 수를 적게 두는 것"(누적 후회)이 아니다. 도중에 뭘 시뮬하든 대가가 없다.
+    // PUCT는 후자에 맞춰져 있어, 프라이어가 확신하면(측정 pmax 0.726) 예산의 84%를 1위에 쏟고
+    // 2위는 2.7%만 받는다 → 2위의 Q가 부정확해 "정말 1위가 맞나"를 판정하지 못한다.
+    // (측정: 1위-2위 격차의 z 중앙값 1.73, 국면의 30%가 z<1 = 사실상 동전던지기)
+    //
+    // SH는 라운드마다 하위 절반을 탈락시키고 남은 후보에 예산을 몰아준다.
+    // K=7이면 3라운드, 최종 상위 2후보가 각각 ~620시뮬 → 격차 표준오차 0.107→0.045.
+    decideSH: function (game, seat, hist, opts) {
+      var budget = (opts && opts.budgetMs) || 950;
+      var cc = candsOf(game, seat);
+      var cands = cc.cands;
+      if (!cands.length) return { type: 'pass_turn', seat: seat };
+      if (cands.length === 1) return finishAction(game, seat, cands[0]);
+      var K = cands.length, i;
+      var probs = net.probsRecord(net.makeRecord(game, seat, cands, hist));
+      var temp = (opts && opts.temp) ? opts.temp : 1;
+      if (temp !== 1) {
+        var tS = 0;
+        for (i = 0; i < K; i++) { probs[i] = Math.pow(probs[i], 1 / temp); tS += probs[i]; }
+        for (i = 0; i < K; i++) probs[i] /= tS;
+      }
+      // 프라이어 사전 가지치기(선택) — SH는 프라이어를 안 쓰므로, 정말 가망 없는 후보만 미리 뺀다
+      var keepP = (opts && opts.keepP != null) ? opts.keepP : 0;
+      var mx = 0;
+      for (i = 0; i < K; i++) if (probs[i] > mx) mx = probs[i];
+      var alive = [];
+      for (i = 0; i < K; i++) if (!keepP || probs[i] >= mx * keepP) alive.push(i);
+      if (alive.length < 2) { alive = []; for (i = 0; i < K; i++) alive.push(i); }
+
+      var lambda = (opts && opts.lambda != null) ? opts.lambda : 0; // 순위에 프라이어를 섞는 정도
+      var holdV = null;
+      if (opts && opts.holdValue) {
+        holdV = new Float64Array(K);
+        for (i = 0; i < K; i++) holdV[i] = holdBonus(game, seat, cands[i]);
+      }
+      var oracle = (opts && opts.oracle) || null;
+      var Q = new Float64Array(K), N = new Int32Array(K), dead = {};
+
+      function evalIn(det, ci, deadline) {
+        var sim = det.clone ? det.clone() : B.cloneGame(det);
+        var h2 = hist.slice();
+        if (!applyCand(sim, seat, cands[ci], h2)) { dead[ci] = 1; return; }
+        var v = oracle ? oracleEval(sim, seat, oracle)
+                       : Math.max(-2, Math.min(2, heuristicPlayout(sim, seat, deadline) / 100));
+        if (holdV) v += holdV[ci];
+        Q[ci] += (v - Q[ci]) / (N[ci] + 1);
+        N[ci]++;
+      }
+      // 공통난수(CRN): 세계를 하나 뽑아 살아있는 후보 전부를 그 안에서 평가한다.
+      // 후보마다 다른 세계를 뽑으면 "후보 차이"에 "세계 차이"가 섞인다. 같은 세계를 공유하면
+      // 그 부분이 상쇄된다 — 실측 세계 내 상관 0.612, 비교 분산 2.67배 감소, 비용은 오히려 감소
+      // (결정화 K회 → 1회). 챔피언+(decidePlus)는 원래 이 성질을 갖고 있었고 PUCT가 잃었다.
+      function simWorld(deadline) {
+        var det = B.determinize(game, seat);
+        for (var ai = 0; ai < alive.length; ai++) evalIn(det, alive[ai], deadline);
+      }
+      function rank(a, b) {                       // 큰 쪽이 앞
+        var sa = (N[a] ? Q[a] : -1e9) + lambda * Math.log(Math.max(probs[a], 1e-6));
+        var sb = (N[b] ? Q[b] : -1e9) + lambda * Math.log(Math.max(probs[b], 1e-6));
+        if (dead[a]) sa = -1e18;
+        if (dead[b]) sb = -1e18;
+        return sb - sa;
+      }
+
+      var crn = !(opts && opts.crn === false);
+      var t0 = Date.now();
+      var R = Math.max(1, Math.ceil(Math.log(alive.length) / Math.LN2));
+      var perSim = 0.7;                            // 시뮬 1회 예상 ms — 실측으로 갱신
+      for (var r = 0; r < R && alive.length > 1; r++) {
+        var roundEnd = t0 + budget * (r + 1) / R;
+        if (crn) {
+          // 끝까지 못 돌 세계는 아예 시작하지 않는다 — 후보별 N이 어긋나면 짝지음이 깨져 이득이 사라진다
+          while (Date.now() + alive.length * perSim < roundEnd) {
+            var tw = Date.now();
+            simWorld(roundEnd);
+            perSim = perSim * 0.7 + ((Date.now() - tw) / alive.length) * 0.3;
+          }
+        } else {
+          var turn = 0;
+          while (Date.now() < roundEnd) { evalIn(B.determinize(game, seat), alive[turn % alive.length], roundEnd); turn++; }
+        }
+        alive.sort(rank);
+        alive = alive.slice(0, Math.max(1, Math.ceil(alive.length / 2)));
+      }
+      if (globalThis.__TICHU_STAT) {
+        var tot = 0; for (var qi = 0; qi < K; qi++) tot += N[qi];
+        globalThis.__TICHU_STAT.sims += tot; globalThis.__TICHU_STAT.dec++;
+      }
+      var order = alive.slice().sort(rank);
+      return finishAction(game, seat, cands[order[0]]);
     },
 
     // 챔피언+ 모드 (공식 초고수)

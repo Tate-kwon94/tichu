@@ -14,15 +14,60 @@ var seedStart = +process.argv[4] || 1;
 var seedEnd = +process.argv[5] || 10;
 var hyMs = +process.argv[6] || 950;
 var oppMs = +process.argv[7] || 950;
-var mode = process.argv[8] || 'value'; // value=가치롤아웃 | plus=챔피언+(휴리스틱 플레이아웃+프라이어+가지치기)
+var mode = process.argv[8] || 'value'; // value=가치롤아웃 | plus=챔피언+ | puct=1단 | sh=Sequential Halving(2단후보)
 var hyTemp = +process.argv[9] || 1;    // 본 하이브리드의 프라이어 온도
 globalThis.__TICHU_HARD = { samples: 999999, budgetMs: oppMs };
+globalThis.__TICHU_STAT = { sims: 0, dec: 0 };
+
+/* 굶주림 게이트 — 이 머신이 지금 플레이아웃 1회에 몇 µs를 쓰는가.
+ * 유휴면 ~425µs. 다른 프로세스에 코어를 뺏기면 수 배로 뛰고, 그러면 예산 안에 탐색이
+ * 거의 일어나지 않아 "개선이 없다"와 "탐색이 없었다"를 구분할 수 없게 된다.
+ * 결과 줄에 같이 찍어서 나중에라도 그 판의 유효성을 판정할 수 있게 한다. */
+function measurePlayoutCost() {
+  var g = new C.Game({ seed: 424242, targetScore: 500 }), guard = 0;
+  while (g.phase !== 'play' && ++guard < 200) {
+    var w0 = g.waitingOn(); if (!w0.length) break;
+    var a0 = B.botDecide(g, w0[0], 'normal'); if (!a0 || !g.apply(a0).ok) break;
+  }
+  // 워밍업: V8 JIT이 최적화하기 전에는 같은 코드가 10배 이상 느리다.
+  // 이걸 빼먹으면 굶주림이 아니라 워밍업을 재게 된다(실제로 그런 오탐이 났었다).
+  for (var wu = 0; wu < 40; wu++) {
+    var ws = g.clone(), wg = 0;
+    while (ws.phase !== 'roundEnd' && ws.phase !== 'gameEnd' && ++wg < 2000) {
+      var ww = ws.waitingOn(); if (!ww.length) break;
+      var wa = B.botDecide(ws, ww[0], 'normal'); if (!wa || !ws.apply(wa).ok) break;
+    }
+  }
+  var t = Date.now(), n = 0;
+  while (Date.now() - t < 200) {
+    var sim = g.clone(), gd = 0;
+    while (sim.phase !== 'roundEnd' && sim.phase !== 'gameEnd' && ++gd < 2000) {
+      var w = sim.waitingOn(); if (!w.length) break;
+      var a = B.botDecide(sim, w[0], 'normal'); if (!a || !sim.apply(a).ok) break;
+    }
+    n++;
+  }
+  return n ? (Date.now() - t) * 1000 / n : -1;
+}
+var USPP = measurePlayoutCost();
 
 var hy = HY.create(wPath);
 // 선언 신경망(있으면 하이브리드 측 그랜드/티츄 판단에 사용 — 배포 구성과 동일)
 var DECL = require(path.join(__dirname, '..', 'shared', 'declare.js'));
-var decl = null;
-try { decl = DECL.load(path.join(__dirname, '..', 'shared', 'weights-declare.json')); } catch (e) {}
+var decl = null, declBase = null;
+try {
+  var dj = JSON.parse(require('fs').readFileSync(path.join(__dirname, '..', 'shared', 'weights-declare.json'), 'utf8'));
+  // 임계값 오버라이드 — 재학습 없이 스칼라 두 개만 바꿔 스윕할 수 있다(2단 후보 측에만 적용)
+  if (process.env.TICHU_TH_T || process.env.TICHU_TH_G) {
+    dj.calib = dj.calib || {};
+    if (process.env.TICHU_TH_T) dj.calib.tichuThreshold = +process.env.TICHU_TH_T;
+    if (process.env.TICHU_TH_G) dj.calib.grandThreshold = +process.env.TICHU_TH_G;
+  }
+  decl = DECL.create(dj);
+  if (process.env.TICHU_TH_T || process.env.TICHU_TH_G) {
+    declBase = DECL.load(path.join(__dirname, '..', 'shared', 'weights-declare.json')); // 상대(고정 1단)용 원본
+  }
+} catch (e) {}
 // 상대가 'hy:<weights>[:temp]'(챔피언+) 또는 'pu:<weights>[:c]'(PUCT)이면 봇끼리 대결(승단전)
 var oppHy = null, oppHyTemp = 1, oppHyMode = 'plus', oppHyC = 1.0;
 if (oppLevel.indexOf('hy:') === 0) {
@@ -41,6 +86,16 @@ if (oppLevel.indexOf('hy:') === 0) {
 // 사용: TICHU_CAND=declAdjust,holdValue,oppRead node eval-hybrid.js ...
 var CAND = (process.env.TICHU_CAND || '').split(',').filter(Boolean);
 function hasCand(f) { return CAND.indexOf(f) >= 0; }
+/* 상대(기준선)측 프로파일 — 사다리가 올라가면 기준선도 올라간다.
+ *   3단 승단전: TICHU_OPP_CAND=exchange (상대 = 동결 2단)
+ * 비어 있으면 상대는 1단. */
+var OPPC = (process.env.TICHU_OPP_CAND || '').split(',').filter(Boolean);
+function hasOppCand(f) { return OPPC.indexOf(f) >= 0; }
+// ④ 오라클 말단 평가 — TICHU_ORACLE=<oracle.json> 이 있을 때만, 그것도 주(main) 봇에만.
+var ORACLE = null, ORACLE_MIX = +process.env.TICHU_ORACLE_MIX || 0;
+if (process.env.TICHU_ORACLE) {
+  ORACLE = require(path.join(__dirname, '..', 'shared', 'oracle-value.js')).load(process.env.TICHU_ORACLE);
+}
 function scoreCtx(g, seat) { return { my: g.scores[seat % 2], opp: g.scores[1 - (seat % 2)], tgt: g.targetScore }; }
 
 function hyDecide(g, seat, hist) {
@@ -48,39 +103,78 @@ function hyDecide(g, seat, hist) {
   if (decl && g.phase === 'grand' && !g.grandAnswered[seat]) {
     return { type: 'call_grand', seat: seat, call: decl.grand(g.hands[seat], ctx) };
   }
-  if (decl && g.phase === 'play' && g.turnSeat === seat && !g.playedFirst[seat] &&
-      !g.tichu[seat] && g.finished.indexOf(seat) < 0 && decl.tichu(g.hands[seat], ctx)) {
-    return { type: 'call_tichu', seat: seat };
+  if (g.phase === 'play' && g.turnSeat === seat && !g.playedFirst[seat] &&
+      !g.tichu[seat] && g.finished.indexOf(seat) < 0) {
+    // ⑥ 롤아웃 선언 — 켜져 있으면 선언망 임계값 대신 "먼저 나갈 확률"을 세어본다
+    if (hasCand('rollTichu')) {
+      var rt = hy.declareTichu(g, seat, {
+        budgetMs: +process.env.TICHU_RT_MS || 200,
+        th: process.env.TICHU_RT_TH != null ? +process.env.TICHU_RT_TH : 0.5,
+        calA: +process.env.TICHU_RT_A || 0,
+        calB: process.env.TICHU_RT_B != null ? +process.env.TICHU_RT_B : 1
+      });
+      if (rt.declare) return { type: 'call_tichu', seat: seat };
+    } else if (decl && decl.tichu(g.hands[seat], ctx)) {
+      return { type: 'call_tichu', seat: seat };
+    }
   }
   if (g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
     var opts = { budgetMs: hyMs, temp: hyTemp, c: (+process.argv[10] || 1.5),
-      holdValue: hasCand('holdValue'), oppRead: hasCand('oppRead') }; // ②③
+      holdValue: hasCand('holdValue'), oppRead: hasCand('oppRead'),   // ②③
+      oracle: ORACLE, oracleMix: ORACLE_MIX };                        // ④
+    if (mode === 'sh') return hy.decideSH(g, seat, hist, opts);   // ⑤ Sequential Halving 뿌리 배분
     if (mode === 'puct') return hy.decidePuct(g, seat, hist, opts);
     if (mode === 'plus') return hy.decidePlus(g, seat, hist, opts);
     return hy.decide(g, seat, hist, opts);
   }
+  // ⑦ 교환: 마작·개를 상대에게 넘기지 않는다 (2단 후보). 상대측(고정 1단)은 기존 그대로.
+  if (hasCand('exchange') && g.phase === 'exchange' && !g.exchangeGive[seat]) {
+    return { type: 'submit_exchange', seat: seat, give: B.botExchange(g, seat, { keepSpecials: true }) };
+  }
   return B.botDecide(g, seat, 'normal'); // 교환·소원·용 — 휴리스틱 유지
 }
 function oppHyDecide(g, seat, hist) {
-  if (decl && g.phase === 'grand' && !g.grandAnswered[seat]) {
-    return { type: 'call_grand', seat: seat, call: decl.grand(g.hands[seat]) };
+  var od = declBase || decl;                      // 고정 1단은 항상 원본 임계값
+  if (od && g.phase === 'grand' && !g.grandAnswered[seat]) {
+    return { type: 'call_grand', seat: seat, call: od.grand(g.hands[seat]) };
   }
-  if (decl && g.phase === 'play' && g.turnSeat === seat && !g.playedFirst[seat] &&
-      !g.tichu[seat] && g.finished.indexOf(seat) < 0 && decl.tichu(g.hands[seat])) {
+  if (od && g.phase === 'play' && g.turnSeat === seat && !g.playedFirst[seat] &&
+      !g.tichu[seat] && g.finished.indexOf(seat) < 0 && od.tichu(g.hands[seat])) {
     return { type: 'call_tichu', seat: seat };
   }
   if (g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
     if (oppHyMode === 'puct') return oppHy.decidePuct(g, seat, hist, { budgetMs: oppMs, c: oppHyC });
     return oppHy.decidePlus(g, seat, hist, { budgetMs: oppMs, temp: oppHyTemp });
   }
+  // 상대(기준선)도 사다리가 올라가면 개선분을 갖는다. 3단 승단전: TICHU_OPP_CAND=exchange
+  if (hasOppCand('exchange') && g.phase === 'exchange' && !g.exchangeGive[seat]) {
+    return { type: 'submit_exchange', seat: seat, give: B.botExchange(g, seat, { keepSpecials: true }) };
+  }
   return B.botDecide(g, seat, 'normal');
 }
 
+var GPTS = 0, GROUNDS = 0;
+var TSTAT = { hy: { tichu: { n: 0, ok: 0 }, grand: { n: 0, ok: 0 } },
+              op: { tichu: { n: 0, ok: 0 }, grand: { n: 0, ok: 0 } } };
 function playGame(seed, hyTeamA) {
   var g = new C.Game({ seed: seed, targetScore: 500 });
   var hist = [], guard = 0;
   while (!g.gameOver) {
-    if (g.phase === 'roundEnd') { hist = []; g.apply({ type: 'next_round' }); continue; }
+    if (g.phase === 'roundEnd') {
+      // 진단: 선언한 티츄가 실제로 성공했는가 (편 별로). 임계값이 맞는지 판정하는 핵심 지표.
+      for (var ts = 0; ts < 4; ts++) {
+        if (g.tichu[ts] > 0) {
+          var side = ((ts % 2 === 0) === hyTeamA) ? 'hy' : 'op';
+          var kind = g.tichu[ts] === 200 ? 'grand' : 'tichu';
+          TSTAT[side][kind].n++;
+          if (g.firstOutSeat === ts) TSTAT[side][kind].ok++;
+        }
+      }
+      var dd = g.roundSummary.deltas;
+      GPTS += hyTeamA ? (dd.teamA - dd.teamB) : (dd.teamB - dd.teamA);
+      GROUNDS++;
+      hist = []; g.apply({ type: 'next_round' }); continue;
+    }
     var w = g.waitingOn();
     if (!w.length) break;
     var s = w[0];
@@ -101,18 +195,34 @@ function playGame(seed, hyTeamA) {
   return g.winnerTeam === (hyTeamA ? 'A' : 'B');
 }
 
-var wins = 0, games = 0, t0 = Date.now();
+var wins = 0, games = 0, t0 = Date.now(), PAIRS = [];
 for (var seed = seedStart; seed <= seedEnd; seed++) {
+  var pp = [];
   [true, false].forEach(function (side) {
     try {
       games++;
+      var p0 = GPTS, r0 = GROUNDS;
       if (playGame(seed, side)) wins++;
+      pp.push(GROUNDS > r0 ? (GPTS - p0) / (GROUNDS - r0) : 0);
     } catch (e) {
       games--;
       console.error('seed', seed, 'FAIL', e.message);
     }
   });
+  if (pp.length === 2) PAIRS.push((pp[0] + pp[1]) / 2); // 같은 딜 양측 평균 = 딜 운 상쇄
 }
+console.log('SIMS perDecision=' + (__TICHU_STAT.dec ? Math.round(__TICHU_STAT.sims / __TICHU_STAT.dec) : 0) +
+            ' decisions=' + __TICHU_STAT.dec + ' usPerPlayout=' + Math.round(USPP) +
+            (USPP > 900 ? ' [굶주림 의심 — perDecision을 함께 볼 것]' : ''));
+console.log('PAIRS ' + JSON.stringify(PAIRS.map(function (x) { return +x.toFixed(2); })));
+console.log('PTS rounds=' + GROUNDS + ' total=' + GPTS + ' perRound=' + (GROUNDS ? (GPTS / GROUNDS).toFixed(2) : 0));
+function tsLine(side, kind) {
+  var t = TSTAT[side][kind];
+  return kind + ' ' + t.ok + '/' + t.n + (t.n ? ' (' + (100 * t.ok / t.n).toFixed(0) + '%)' : '');
+}
+console.log('TICHU hy: ' + tsLine('hy', 'tichu') + '  ' + tsLine('hy', 'grand') +
+            '  |  op: ' + tsLine('op', 'tichu') + '  ' + tsLine('op', 'grand'));
+console.log('PROFILE main=[' + (CAND.join(',') || '없음') + '] opp=[' + (OPPC.join(',') || '없음') + ']');
 console.log('RESULT hybrid(' + hyMs + 'ms) vs ' + oppLevel + (oppLevel === 'hard' ? '(' + oppMs + 'ms)' : '') +
   ': games=' + games + ' hyWins=' + wins + ' rate=' + (100 * wins / games).toFixed(1) +
   '% elapsed=' + Math.round((Date.now() - t0) / 1000) + 's');

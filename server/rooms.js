@@ -208,19 +208,24 @@ function botAct(room, seat) {
   if (g.waitingOn().indexOf(seat) < 0) { scheduleBots(room); return; }
   var p = room.seats[seat];
   var a = null;
-  // 1단(super)은 동결 — 고정 임계 선언(ctx 미전달). ①②③④는 2단 후보(하네스)에서만 켜짐.
-  var superTichu = room.botLevel === 'super' && p && p.isBot && g.phase === 'play' && g.turnSeat === seat &&
+  // 1단(super)·2단(super2)은 동결. 2단 = 1단 코드 그대로 + 교환에서 마작·개 보유(⑦).
+  // 검증(2026-07-24): 950ms 240판 짝지음 +22.56점/라운드 → 점수차 66.2%. 사용자가 점수차 기준 확정.
+  // 이득은 원투 완주 보너스에서 나온다(카드 점수 기여 −0.20). 1단(super) 경로는 한 줄도 건드리지 않음.
+  var isSuper = room.botLevel === 'super' || room.botLevel === 'super2';
+  var superTichu = isSuper && p && p.isBot && g.phase === 'play' && g.turnSeat === seat &&
     !g.playedFirst[seat] && !g.tichu[seat] && getDeclare().tichu(g.hands[seat]);
-  var heurTichu = room.botLevel !== 'super' && p && p.isBot && room.botLevel !== 'easy' && g.phase === 'play' &&
+  var heurTichu = !isSuper && p && p.isBot && room.botLevel !== 'easy' && g.phase === 'play' &&
     g.turnSeat === seat && !g.playedFirst[seat] && !g.tichu[seat] && B.botTichu(g.hands[seat]);
   if (superTichu || heurTichu) {
     a = { type: 'call_tichu', seat: seat };
-  } else if (room.botLevel === 'super' && g.phase === 'grand' && !g.grandAnswered[seat]) {
+  } else if (isSuper && g.phase === 'grand' && !g.grandAnswered[seat]) {
     a = { type: 'call_grand', seat: seat, call: getDeclare().grand(g.hands[seat]) }; // 선언 신경망(동결)
-  } else if (room.botLevel === 'super' && g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
+  } else if (room.botLevel === 'super2' && g.phase === 'exchange' && !g.exchangeGive[seat]) {
+    a = { type: 'submit_exchange', seat: seat, give: B.botExchange(g, seat, { keepSpecials: true }) }; // ⑦ 2단 전용
+  } else if (isSuper && g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
     a = getSuperBot().decidePuct(g, seat, room.playHist || [], { budgetMs: 950, c: 1.0 });
   } else {
-    // 초고수의 선언·교환·소원·용은 고수와 같은 휴리스틱(botDecide는 미지 레벨을 보통으로 처리)
+    // 초고수의 선언·교환(1단)·소원·용은 고수와 같은 휴리스틱(botDecide는 미지 레벨을 보통으로 처리)
     a = B.botDecide(g, seat, room.botLevel);
   }
   if (!a) return;
@@ -532,7 +537,7 @@ function handle(player, a) {
       // 온라인 봇: 'super'(내부 키 유지) = 사용자 표기 "1단". 탐색은 950ms 시간컷(동시 1게임 전제)
       // 1단 = v6 신경망(폭2배) + PUCT(c=1.0) 하이브리드. v3-챔피언+ 직접 58.8%로 이겨 승격(고수950 대비 ~60%)
       // 악마(상대 패 열람)는 사람에게 불공정 → 제외
-      room.botLevel = ['easy', 'normal', 'hard', 'super'].indexOf(a.botLevel) >= 0 ? a.botLevel : 'normal';
+      room.botLevel = ['easy', 'normal', 'hard', 'super', 'super2'].indexOf(a.botLevel) >= 0 ? a.botLevel : 'normal';
       room.playHist = [];
       room.game = new C.Game({ targetScore: ts });
       room.lastActivity = now();

@@ -7,8 +7,8 @@ var NAMES = ['나', '레오', '미나', '준'];
 
 function create(handlers, resume, botLevel, superHy, declNet) {
   var C = TichuCore, B = TichuBots;
-  botLevel = ['easy', 'normal', 'hard', 'devil', 'super'].indexOf(botLevel) >= 0 ? botLevel : 'normal';
-  if (botLevel === 'super' && !superHy) botLevel = 'hard'; // 가중치 미로드 시 안전 폴백
+  botLevel = ['easy', 'normal', 'hard', 'devil', 'super', 'super2'].indexOf(botLevel) >= 0 ? botLevel : 'normal';
+  if ((botLevel === 'super' || botLevel === 'super2') && !superHy) botLevel = 'hard'; // 가중치 미로드 시 안전 폴백
   var hist = []; // 라운드 내 플레이 이력 — 초고수 신경망 입력
   function trackHist(a) {
     if (a.type === 'next_round' || a.type === 'restart') { hist = []; return; }
@@ -62,18 +62,21 @@ function create(handlers, resume, botLevel, superHy, declNet) {
       if (stopped) return;
       var s = w[0];
       var a = null;
-      // 1단(super) 동결 — 고정 임계 선언(ctx 미전달)
+      // 1단(super)·2단(super2) 동결. 2단 = 1단 그대로 + 교환에서 마작·개 보유(⑦).
+      var isSuper = botLevel === 'super' || botLevel === 'super2';
       var wantTichu = game.phase === 'play' && game.turnSeat === s && !game.playedFirst[s] && !game.tichu[s] &&
-        (botLevel === 'super' && declNet ? declNet.tichu(game.hands[s])
-          : (botLevel !== 'easy' && botLevel !== 'super' && B.botTichu(game.hands[s])));
+        (isSuper && declNet ? declNet.tichu(game.hands[s])
+          : (botLevel !== 'easy' && !isSuper && B.botTichu(game.hands[s])));
       if (wantTichu) {
         a = { type: 'call_tichu', seat: s };
-      } else if (botLevel === 'super' && declNet && game.phase === 'grand' && !game.grandAnswered[s]) {
+      } else if (isSuper && declNet && game.phase === 'grand' && !game.grandAnswered[s]) {
         a = { type: 'call_grand', seat: s, call: declNet.grand(game.hands[s]) }; // 선언 신경망(동결)
-      } else if (botLevel === 'super' && game.phase === 'play' && game.turnSeat === s && game.finished.indexOf(s) < 0) {
+      } else if (botLevel === 'super2' && game.phase === 'exchange' && !game.exchangeGive[s]) {
+        a = { type: 'submit_exchange', seat: s, give: B.botExchange(game, s, { keepSpecials: true }) }; // ⑦ 2단 전용
+      } else if (isSuper && game.phase === 'play' && game.turnSeat === s && game.finished.indexOf(s) < 0) {
         a = superHy.decidePuct(game, s, hist, { budgetMs: 900, c: 1.0 });
       } else {
-        a = B.botDecide(game, s, botLevel === 'super' ? 'normal' : botLevel);
+        a = B.botDecide(game, s, isSuper ? 'normal' : botLevel);
       }
       if (a) {
         var r = game.apply(a);

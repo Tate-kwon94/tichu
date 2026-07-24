@@ -37,7 +37,7 @@ var state = {
   chatDraft: '',         // 작성 중 초안 (재렌더에도 보존)
   bubbles: {},           // seat → {text, until} 말풍선
   roomList: [],          // 홈 화면 열린 방 목록
-  botLevel: 'super',     // 봇 난이도 (easy|normal|hard|super|devil) — 기본 초고수
+  botLevel: 'super2',    // 봇 단수 (super=1단 | super2=2단 | devil) — 기본 최고단(2단)
   conn: { s: '', mode: '' }
 };
 var tichuArmTimer = null;
@@ -361,13 +361,14 @@ var declNetCache = null;   // 선언 신경망(~130KB)
 function startSolo(resume) {
   destroySession();
   if (!resume) OfflineSession.clearSave();
-  if (state.botLevel === 'super') {
+  if (state.botLevel === 'super' || state.botLevel === 'super2') {
+    var danKey = state.botLevel, danNum = danKey === 'super2' ? '2단' : '1단';
     if (superHyCache) {
-      state.session = OfflineSession.create(handlers, resume, 'super', superHyCache, declNetCache);
+      state.session = OfflineSession.create(handlers, resume, danKey, superHyCache, declNetCache);
       state.conn = { s: '', mode: 'offline' };
       return;
     }
-    toast('1단 봇 준비 중…', { ms: 4000 });
+    toast(danNum + ' 봇 준비 중…', { ms: 4000 });
     Promise.all([
       fetch('shared/weights-super.json').then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.json(); }),
       fetch('shared/weights-declare.json').then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; })
@@ -375,11 +376,11 @@ function startSolo(resume) {
       .then(function (ws) {
         superHyCache = TichuHybrid.create(TichuNet.create(ws[0]));
         if (ws[1]) declNetCache = TichuDeclare.create(ws[1]);
-        state.session = OfflineSession.create(handlers, resume, 'super', superHyCache, declNetCache);
+        state.session = OfflineSession.create(handlers, resume, danKey, superHyCache, declNetCache);
         state.conn = { s: '', mode: 'offline' };
       })
       .catch(function () {
-        toast('1단 봇 로드 실패 — 기본 봇으로 시작합니다', { ms: 4000, warn: true });
+        toast(danNum + ' 봇 로드 실패 — 기본 봇으로 시작합니다', { ms: 4000, warn: true });
         state.session = OfflineSession.create(handlers, resume, 'hard');
         state.conn = { s: '', mode: 'offline' };
       });
@@ -662,14 +663,14 @@ function roomListHtml() {
 }
 // full=true(혼자 연습): 4단계 전부. full=false(온라인 로비): 쉬움/보통만(서버 보호·공정성)
 function botLevelPicker(full) {
-  // 단(段) 체계: 현재 1단(super)만 존재 — 승급전(직전 단 65% 격파) 통과 시 2단·3단 추가.
+  // 단(段) 체계: 1단(super)·2단(super2) — 승급전(직전 단 점수차 65% 격파) 통과 시 3단 추가.
   // 혼자 연습엔 악마(상대 패 열람, 등급 밖 치트) 포함. 온라인은 공정성 위해 단만.
-  // (내부 봇키 super=1단. 쉬움/보통/고수 엔진은 코드에 남아있으나 피커에서 제외 — 룰 아는 사용자 전제)
+  // (내부 봇키 super=1단, super2=2단. 쉬움/보통/고수 엔진은 코드에 남아있으나 피커에서 제외)
   var opts = full
-    ? [['super', STR.botDan1], ['devil', STR.botDevil]]
-    : [['super', STR.botDan1]];
-  var lv = (state.botLevel === 'devil' && full) ? 'devil' : 'super'; // 온라인·비악마는 1단으로 고정
-  var hint = (lv === 'devil') ? STR.botHintDevil : STR.botHintDan1;
+    ? [['super', STR.botDan1], ['super2', STR.botDan2], ['devil', STR.botDevil]]
+    : [['super', STR.botDan1], ['super2', STR.botDan2]];
+  var lv = (['super2', 'devil'].indexOf(state.botLevel) >= 0 && (state.botLevel !== 'devil' || full)) ? state.botLevel : 'super';
+  var hint = (lv === 'devil') ? STR.botHintDevil : (lv === 'super2') ? STR.botHintDan2 : STR.botHintDan1;
   return '<div class="targetRow botRow"><span class="targetLbl">' + STR.botLevelLbl + '</span>' +
     opts.map(function (o) {
       return '<button class="btn small ' + (lv === o[0] ? (o[0] === 'devil' ? 'danger' : 'gold') : 'ghost') +
@@ -1176,14 +1177,15 @@ function onClick(e) {
     case 'bot-del': send({ type: 'remove_bot', seat: seat }); break;
     case 'kick': send({ type: 'kick_player', seat: seat }); break;
     case 'start': {
-      // 온라인은 현재 1단(super)만 — 악마/구등급 선택값은 1단으로. (2단 추가 시 여기 확장)
-      send({ type: 'start_game', targetScore: state.lobbyTarget, botLevel: 'super' });
+      // 온라인은 단(段)만 공정 — 악마/구등급 선택값은 1단으로. 2단(super2)까지 허용.
+      var onlineLv = state.botLevel === 'super2' ? 'super2' : 'super';
+      send({ type: 'start_game', targetScore: state.lobbyTarget, botLevel: onlineLv });
       break;
     }
     case 'target': state.lobbyTarget = +el.getAttribute('data-n'); render(); break;
     case 'botlevel': {
       var lv = el.getAttribute('data-l');
-      state.botLevel = ['devil', 'super'].indexOf(lv) >= 0 ? lv : 'super'; // 1단(super) 기본
+      state.botLevel = ['devil', 'super', 'super2'].indexOf(lv) >= 0 ? lv : 'super'; // 1단(super) 기본
       try { localStorage.setItem('tichu.botlevel', state.botLevel); } catch (e3) {}
       render();
       break;
@@ -1344,7 +1346,7 @@ function init() {
   try { state.office = localStorage.getItem('tichu.office') === '1'; } catch (e) {}
   try { var xs = localStorage.getItem('tichu.xlstyle'); state.xlStyle = (xs === '1' || xs === '2' || xs === '3') ? xs : ''; } catch (e) {}
   try { var gh = parseInt(localStorage.getItem('tichu.ghost') || '0', 10); state.ghost = (gh === 1 || gh === 2) ? gh : 0; } catch (e) {}
-  try { var bl = localStorage.getItem('tichu.botlevel'); state.botLevel = ['easy', 'normal', 'hard', 'devil', 'super'].indexOf(bl) >= 0 ? bl : 'super'; } catch (e) {}
+  try { var bl = localStorage.getItem('tichu.botlevel'); state.botLevel = ['easy', 'normal', 'hard', 'devil', 'super', 'super2'].indexOf(bl) >= 0 ? bl : 'super2'; } catch (e) {}
   state.urlRoom = (new URLSearchParams(location.search).get('room') || '').toUpperCase().slice(0, 4);
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js').catch(function () {});

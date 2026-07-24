@@ -112,14 +112,21 @@ function botTichu(hand14) { return tichuScore(hand14) >= thresh('tichu', 8); }
 
 // ---------- 교환 ----------
 // 상대(좌/우)에게 최저 카드 + 마작/개 떠넘기기, 파트너에게 가장 강한 카드(용/불사조는 보유)
-function botExchange(game, seat) {
+function botExchange(game, seat, opts) {
   var hand = sortHand(game.hands[seat]); // 오름차순
   var left = (seat + 1) % 4, right = (seat + 3) % 4, partner = partnerOf(seat);
   var give = {}, used = {};
   // 상대 둘: 마작(선 강제 떠넘기기)·개 우선, 그다음 최저 일반 카드
+  //
+  // keepSpecials(2단 후보): 마작·개를 넘기지 않는다. "떠넘긴다"고 봤지만 실은 선물이었다 —
+  // 개는 리드를 파트너에게 넘기는 카드라 상대에게 주면 그쪽이 자기 파트너에게 쓴다.
+  // 마작도 리드와 소원을 함께 준다. 실측(짝지은 200딜, 신경망 그리디): 마작만 안 넘겨도
+  // +14.75점/라운드, 둘 다 안 넘기면 +26.30점/라운드. normal 풀게임 승률 61.4%±1.1.
   var opp = [];
-  if (hand.indexOf('MJ') >= 0) opp.push('MJ');
-  if (hand.indexOf('DG') >= 0) opp.push('DG');
+  if (!(opts && opts.keepSpecials)) {
+    if (hand.indexOf('MJ') >= 0) opp.push('MJ');
+    if (hand.indexOf('DG') >= 0) opp.push('DG');
+  }
   for (var i = 0; i < hand.length && opp.length < 2; i++) {
     if (!isSpecial(hand[i]) && opp.indexOf(hand[i]) < 0) opp.push(hand[i]);
   }
