@@ -1,0 +1,5 @@
+.venv/
+data/orc/*.bin
+data/rl3/g*.jsonl
+data/*.log
+data/*.tmp

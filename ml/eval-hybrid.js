@@ -121,7 +121,10 @@ function hyDecide(g, seat, hist) {
   if (g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
     var opts = { budgetMs: hyMs, temp: hyTemp, c: (+process.argv[10] || 1.5),
       holdValue: hasCand('holdValue'), oppRead: hasCand('oppRead'),   // ②③
-      oracle: ORACLE, oracleMix: ORACLE_MIX };                        // ④
+      oracle: ORACLE, oracleMix: ORACLE_MIX,                          // ④
+      perfect: process.env.TICHU_PERFECT === '1',                    // 3단 헤드룸: 투시(완전정보)
+      playout: process.env.TICHU_PLAYOUT || undefined };             // 'neural'=신경망 플레이아웃
+    if (mode === 'oracle1ply') return hy.decideOracle1ply(g, seat, hist, opts);  // 3단 게이트: 1-ply 오라클
     if (mode === 'sh') return hy.decideSH(g, seat, hist, opts);   // ⑤ Sequential Halving 뿌리 배분
     if (mode === 'puct') return hy.decidePuct(g, seat, hist, opts);
     if (mode === 'plus') return hy.decidePlus(g, seat, hist, opts);

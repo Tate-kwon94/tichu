@@ -95,6 +95,34 @@ function create(netOrPath) {
     return Math.max(-2, Math.min(2, oracle.value(sim, seat)));
   }
 
+  // 신경망 그리디 플레이아웃 — 라운드 끝까지 모두 정책망으로 둔다(보통봇보다 강한 평가).
+  // 3단 헤드룸 측정용: 평가(롤아웃 정책)를 강하게 하면 탐색이 더 정확해지는가.
+  // 비쌈(net 호출 ~1500µs/수)이라 실전용 아님 — 상한 확인 후 값이 있으면 가치망으로 근사.
+  function neuralPlayout(sim, seat, hist, deadline) {
+    var myTeamEven = seat % 2 === 0, guard = 0, h = hist.slice();
+    while (sim.phase !== 'roundEnd' && sim.phase !== 'gameEnd') {
+      if (deadline && Date.now() > deadline) {
+        var cap = [0, 0], cards = [0, 0];
+        for (var s3 = 0; s3 < 4; s3++) { cap[s3 % 2] += C.sumPoints(sim.tricksWon[s3]); cards[s3 % 2] += sim.hands[s3].length; }
+        return (myTeamEven ? cap[0] - cap[1] : cap[1] - cap[0]) + (myTeamEven ? cards[1] - cards[0] : cards[0] - cards[1]) * 1.5;
+      }
+      var w = sim.waitingOn(); if (!w.length) break;
+      var s2 = w[0], a;
+      if (sim.phase === 'play' && sim.turnSeat === s2 && sim.finished.indexOf(s2) < 0) {
+        var cc = candsOf(sim, s2);
+        if (cc.cands.length === 1) { if (!applyCand(sim, s2, cc.cands[0], h)) break; continue; }
+        var idx = net.pickRecord(net.makeRecord(sim, s2, cc.cands, h));
+        if (!applyCand(sim, s2, cc.cands[idx], h)) break;
+      } else {
+        a = B.botDecide(sim, s2, 'normal'); if (!a || !sim.apply(a).ok) break;  // 선언·교환·소원·용은 휴리스틱
+      }
+      if (++guard > 2000) break;
+    }
+    if (!sim.roundSummary) return 0;
+    var d = sim.roundSummary.deltas;
+    return myTeamEven ? d.teamA - d.teamB : d.teamB - d.teamA;
+  }
+
   // 휴리스틱('보통') 플레이아웃 — 라운드 끝까지 (챔피언+ 평가)
   function heuristicPlayout(sim, seat, deadline) {
     var myTeamEven = seat % 2 === 0;
@@ -239,13 +267,18 @@ function create(netOrPath) {
           var q = N[i] ? Q[i] : 0; // 미방문은 Q=0(중립) — 탐험항이 첫 방문 유도
           if (q + u > bv) { bv = q + u; best = i; }
         }
-        var det = B.determinize(game, seat, constraints); // ③ 제약 반영 결정화
+        // 완전정보(투시) 모드 — 결정화 대신 실제 게임을 복제. 상대 패를 다 안다.
+        // 3단 헤드룸 측정용: 투시 봇 vs 결정화 봇의 격차 = 불완전정보 처리의 상한.
+        var det = (opts && opts.perfect) ? game.clone()
+          : B.determinize(game, seat, constraints); // ③ 제약 반영 결정화
         var sim = det.clone ? det.clone() : B.cloneGame(det);
         var h2 = hist.slice();
         if (applyCand(sim, seat, cands[best], h2)) {
           var v = (oracle && (!oracleMix || Math.random() >= oracleMix))
             ? oracleEval(sim, seat, oracle)
-            : Math.max(-2, Math.min(2, heuristicPlayout(sim, seat, deadline) / 100));
+            : (opts && opts.playout === 'neural')
+              ? Math.max(-2, Math.min(2, neuralPlayout(sim, seat, h2, deadline) / 100))
+              : Math.max(-2, Math.min(2, heuristicPlayout(sim, seat, deadline) / 100));
           if (holdV) v += holdV[best]; // 강카드 소비 억제 = 아끼기
           Q[best] += (v - Q[best]) / (N[best] + 1); // 러닝 평균
           N[best]++; totalN++;
@@ -263,6 +296,25 @@ function create(netOrPath) {
         if (N[j] > bn || (N[j] === bn && Q[j] > Q[pick])) { bn = N[j]; pick = j; }
       }
       return finishAction(game, seat, cands[pick]);
+    },
+
+    // 1-ply 오라클 그리디 (3단 게이트) — 탐색 없이 argmax_a V_oracle(s⊕a).
+    // 후보-baseline 어드밴티지의 고정점. 이게 2단을 이기면 그걸 정책에 증류하면 3단.
+    decideOracle1ply: function (game, seat, hist, opts) {
+      var oracle = opts && opts.oracle;
+      var cc = candsOf(game, seat);
+      var cands = cc.cands;
+      if (!cands.length) return { type: 'pass_turn', seat: seat };
+      if (cands.length === 1) return finishAction(game, seat, cands[0]);
+      var best = 0, bv = -Infinity;
+      for (var i = 0; i < cands.length; i++) {
+        var sim = game.clone(), h2 = hist.slice();
+        if (!applyCand(sim, seat, cands[i], h2)) continue;
+        // 내 수 직후 국면을 오라클로 평가(내 좌석 관점). 중간 국면은 oracleEval이 play로 되돌림.
+        var v = oracleEval(sim, seat, oracle);
+        if (v > bv) { bv = v; best = i; }
+      }
+      return finishAction(game, seat, cands[best]);
     },
 
     // ⑥ 롤아웃 티츄 선언 (2단 후보) — 손패 점수 임계값 대신 "먼저 나갈 확률"을 실제로 세어본다.
