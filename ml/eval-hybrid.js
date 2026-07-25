@@ -18,6 +18,7 @@ var mode = process.argv[8] || 'value'; // value=가치롤아웃 | plus=챔피언
 var hyTemp = +process.argv[9] || 1;    // 본 하이브리드의 프라이어 온도
 globalThis.__TICHU_HARD = { samples: 999999, budgetMs: oppMs };
 globalThis.__TICHU_STAT = { sims: 0, dec: 0 };
+if (process.env.TICHU_PIN) globalThis.__TICHU_PIN = +process.env.TICHU_PIN; // 부분 clairvoyance 진단
 
 /* 굶주림 게이트 — 이 머신이 지금 플레이아웃 1회에 몇 µs를 쓰는가.
  * 유휴면 ~425µs. 다른 프로세스에 코어를 뺏기면 수 배로 뛰고, 그러면 예산 안에 탐색이

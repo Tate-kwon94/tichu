@@ -287,8 +287,18 @@ function cloneGame(game) { return game.clone ? game.clone() : C.Game.fromJSON(ga
 function determinize(game, seat, constraints) {
   var g = cloneGame(game);
   var others = [], pool = [];
-  for (var s = 0; s < 4; s++) if (s !== seat) { others.push(s); pool = pool.concat(g.hands[s]); }
   var pinned = {};
+  // 부분 clairvoyance 진단(전역 가드, 프로덕션 무영향): 상대 카드를 확률 pinFrac로 진짜 위치에 고정.
+  // pinFrac=0=균일 결정화, 1=완전정보. "belief가 얼마나 정확해야 도움되나"를 잰다.
+  var pinFrac = (typeof globalThis !== 'undefined' && globalThis.__TICHU_PIN) || 0;
+  for (var s = 0; s < 4; s++) if (s !== seat) {
+    others.push(s);
+    var hnd = g.hands[s];
+    for (var hi = 0; hi < hnd.length; hi++) {
+      if (pinFrac && Math.random() < pinFrac) (pinned[s] = pinned[s] || []).push(hnd[hi]);
+      else pool.push(hnd[hi]);
+    }
+  }
   var gave = game.exchangeGive && game.exchangeGive[seat];
   if (gave) {
     for (var q in gave) {
