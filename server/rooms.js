@@ -37,9 +37,14 @@ function recordStats(room, g) {
     return (p && !p.isBot) ? p.name : null;      // 봇은 집계 제외
   });
   if (!names.some(Boolean)) return;              // 전원 봇이면 기록할 것 없음
+  // Elo용 봇 단수 — 봇 좌석은 고정 앵커로 쓰인다(방 전체가 같은 botLevel)
+  var bots = [0, 1, 2, 3].map(function (s) {
+    var p = room.seats[s];
+    return (p && p.isBot) ? (room.botLevel || 'normal') : null;
+  });
   try {
     STATS.recordRound(names, g.roundSummary);
-    if (g.roundSummary.gameOver) STATS.recordGame(names, g.roundSummary.winnerTeam);
+    if (g.roundSummary.gameOver) STATS.recordGame(names, g.roundSummary.winnerTeam, bots);
   } catch (e) { console.error('[tichu] 전적 기록 실패', e.message); }
 }
 

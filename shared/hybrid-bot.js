@@ -124,9 +124,14 @@ function create(netOrPath) {
   }
 
   // 휴리스틱('보통') 플레이아웃 — 라운드 끝까지 (챔피언+ 평가)
-  function heuristicPlayout(sim, seat, deadline) {
+  //
+  // oppK > 0 이면 "상대-연속 편향 제거": 상대 좌석의 첫 oppK 수만 신경망 그리디로 둔다.
+  // 왜: 리프가 "상대가 보통봇처럼 약하게 응수한다"고 가정하는데 실전 상대는 탐색봇이다.
+  // clairvoyance는 "내 은닉정보" 축을 닫았지만 "상대 정책 강도" 축은 직교라 미폐쇄였다.
+  // 전체를 신경망으로 두면 201배 느리므로, 반격이 결정되는 초반 몇 수만 정확히 둔다.
+  function heuristicPlayout(sim, seat, deadline, oppK, hist) {
     var myTeamEven = seat % 2 === 0;
-    var guard = 0;
+    var guard = 0, nOpp = 0, h = (oppK && hist) ? hist.slice() : null;
     while (sim.phase !== 'roundEnd' && sim.phase !== 'gameEnd') {
       if (deadline && Date.now() > deadline) {
         var cap = [0, 0], cards = [0, 0];
@@ -136,8 +141,28 @@ function create(netOrPath) {
         return pts + lead * 1.5;
       }
       var w = sim.waitingOn(); if (!w.length) break;
-      var a = B.botDecide(sim, w[0], 'normal'); if (!a) break;
+      var s3 = w[0];
+      // 상대 좌석(내 팀 아님)의 카드 결정이고 아직 예산(oppK) 남았으면 신경망 그리디
+      if (oppK && nOpp < oppK && (s3 % 2) !== (seat % 2) &&
+          sim.phase === 'play' && sim.turnSeat === s3 && sim.finished.indexOf(s3) < 0) {
+        var cc = candsOf(sim, s3);
+        if (cc.cands.length > 1) {
+          var idx = net.pickRecord(net.makeRecord(sim, s3, cc.cands, h || []));
+          if (!applyCand(sim, s3, cc.cands[idx], h || [])) break;
+          nOpp++;
+          if (++guard > 2000) break;
+          continue;
+        }
+      }
+      var a = B.botDecide(sim, s3, 'normal'); if (!a) break;
       if (!sim.apply(a).ok) break;
+      if (h) {
+        if (a.type === 'pass_turn') h.push({ s: s3, t: 'pass', r: 0, l: 0 });
+        else if (a.type === 'play_cards') {
+          var la2 = sim.lastAction;
+          if (la2 && la2.combo) h.push({ s: s3, t: la2.combo.type, r: la2.combo.rank, l: la2.combo.length });
+        }
+      }
       if (++guard > 2000) break;
     }
     if (!sim.roundSummary) return 0;
@@ -254,6 +279,7 @@ function create(netOrPath) {
       //    실제 플레이아웃으로 재서, 가치망이 통째로 틀린 영역을 탐색이 물고 늘어지는 사고를 막는다.
       var oracle = (opts && opts.oracle) || null;
       var oracleMix = (opts && opts.oracleMix) || 0;
+      var oppK = (opts && opts.oppK) || 0;   // 상대-연속 편향 제거: 상대 첫 K수만 신경망
       var Q = new Float64Array(K), N = new Int32Array(K), totalN = 0;
       var deadline = Date.now() + budget, rep = 0;
       // 반복 상한: 플레이아웃(≈650µs)은 950ms에 1,500회라 2000이 안 걸리지만,
@@ -278,7 +304,7 @@ function create(netOrPath) {
             ? oracleEval(sim, seat, oracle)
             : (opts && opts.playout === 'neural')
               ? Math.max(-2, Math.min(2, neuralPlayout(sim, seat, h2, deadline) / 100))
-              : Math.max(-2, Math.min(2, heuristicPlayout(sim, seat, deadline) / 100));
+              : Math.max(-2, Math.min(2, heuristicPlayout(sim, seat, deadline, oppK, h2) / 100));
           if (holdV) v += holdV[best]; // 강카드 소비 억제 = 아끼기
           Q[best] += (v - Q[best]) / (N[best] + 1); // 러닝 평균
           N[best]++; totalN++;

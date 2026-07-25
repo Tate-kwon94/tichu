@@ -124,7 +124,8 @@ function hyDecide(g, seat, hist) {
       holdValue: hasCand('holdValue'), oppRead: hasCand('oppRead'),   // ②③
       oracle: ORACLE, oracleMix: ORACLE_MIX,                          // ④
       perfect: process.env.TICHU_PERFECT === '1',                    // 3단 헤드룸: 투시(완전정보)
-      playout: process.env.TICHU_PLAYOUT || undefined };             // 'neural'=신경망 플레이아웃
+      playout: process.env.TICHU_PLAYOUT || undefined,                // 'neural'=신경망 플레이아웃
+      oppK: +process.env.TICHU_OPPK || 0 };                          // 상대-연속 편향 제거(첫 K수)
     if (mode === 'oracle1ply') return hy.decideOracle1ply(g, seat, hist, opts);  // 3단 게이트: 1-ply 오라클
     if (mode === 'sh') return hy.decideSH(g, seat, hist, opts);   // ⑤ Sequential Halving 뿌리 배분
     if (mode === 'puct') return hy.decidePuct(g, seat, hist, opts);

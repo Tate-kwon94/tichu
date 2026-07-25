@@ -1106,6 +1106,30 @@ function openStats() {
 /* 전적 모달 — 닉네임 기준. 서버가 날아가도 개인 기록은 남도록 localStorage 백업본도 병합.
  * 디자인: 상단에 내 요약 카드(큰 숫자), 아래 리더보드. 위장 모드에선 숫자만 남는 표로 바뀐다. */
 function pct(n, d) { return d ? Math.round(100 * n / d) + '%' : '–'; }
+var TIER_LBL = { bronze: '브론즈', silver: '실버', gold: '골드', diamond: '다이아' };
+// 티어 기준은 봇 단수 — 동결돼 있어 흔들리지 않는 절대 척도
+function tierHint(t) {
+  return t === 'diamond' ? '2단보다 확실히 강함'
+    : t === 'gold' ? '2단 격파권'
+    : t === 'silver' ? '1단 ~ 2단 사이'
+    : '1단 아래';
+}
+
+/* 봇 앵커 위의 내 위치 — 이 설계의 요점.
+ * 1단·2단은 동결이라 눈금이 흔들리지 않는다. "나는 2단보다 30점 아래"가 절대적 의미를 갖는다. */
+function eloScaleHtml(me) {
+  var a = me.anchors || { dan1: 1000, dan2: 1070 };
+  var lo = a.dan1 - 180, hi = a.dan2 + 180;             // 눈금 범위
+  function pos(v) { return Math.max(0, Math.min(100, 100 * (v - lo) / (hi - lo))); }
+  var mine = Math.max(lo, Math.min(hi, me.elo != null ? me.elo : 1000));
+  return '<div class="stScale">' +
+    '<div class="stScaleBar">' +
+      '<i class="stFill" style="width:' + pos(mine) + '%"></i>' +
+      '<i class="stTick" style="left:' + pos(a.dan1) + '%"><b>1단</b></i>' +
+      '<i class="stTick" style="left:' + pos(a.dan2) + '%"><b>2단</b></i>' +
+      '<i class="stYou" style="left:' + pos(mine) + '%"></i>' +
+    '</div></div>';
+}
 
 function statsModal() {
   var S = state.stats || {};
@@ -1121,8 +1145,17 @@ function statsModal() {
   } else {
     if (me) {
       // 내 요약 — 큰 숫자 3개 + 세부 배지
+      var tier = me.tier || 'bronze';
       body += '<div class="stMe">' +
-        '<div class="stMeName">' + esc(me.name) + '</div>' +
+        '<div class="stMeHead">' +
+          '<span class="stMeName">' + esc(me.name) + '</span>' +
+          '<span class="stTier ' + tier + '">' + TIER_LBL[tier] + '</span>' +
+        '</div>' +
+        '<div class="stElo">' +
+          '<b>' + (me.elo != null ? me.elo : 1000) + '</b>' +
+          '<span>' + tierHint(tier) + (me.provisional ? ' · 잠정(10판 미만)' : '') + '</span>' +
+        '</div>' +
+        eloScaleHtml(me) +
         '<div class="stBig">' +
           '<div class="stBigCell"><b>' + pct(me.wins, me.games) + '</b><span>승률</span></div>' +
           '<div class="stBigCell"><b>' + me.wins + '<i>/' + me.games + '</i></b><span>승/판</span></div>' +
@@ -1151,6 +1184,8 @@ function statsModal() {
           return '<div class="stRow' + (isMe ? ' me' : '') + '">' +
             '<span class="stRank ' + medal + '">' + (i + 1) + '</span>' +
             '<span class="stName">' + esc(r.name) + '</span>' +
+            '<span class="stDot ' + (r.tier || 'bronze') + '" title="' + TIER_LBL[r.tier || 'bronze'] + '"></span>' +
+            '<span class="stElo2">' + (r.elo != null ? r.elo : '–') + (r.provisional ? '?' : '') + '</span>' +
             '<span class="stRate">' + pct(r.wins, r.games) + '</span>' +
             '<span class="stGames">' + r.games + '판</span></div>';
         }).join('') + '</div>';

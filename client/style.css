@@ -245,8 +245,12 @@ input { font: inherit; }
   box-shadow: 0 -8px 30px rgba(0,0,0,.5); animation: up .18s ease-out;
 }
 .backdrop.center .sheet { border-radius: 20px; animation: pop .15s ease-out; }
-@keyframes up { from { transform: translateY(40px); opacity: .5; } to { transform: none; opacity: 1; } }
-@keyframes pop { from { transform: scale(.92); opacity: .5; } to { transform: none; opacity: 1; } }
+/* 등장 애니메이션 — opacity를 넣지 않는다.
+ * 앱은 방 목록 갱신·게임 액션마다 innerHTML을 통째로 다시 그리므로, 열려 있는 모달의
+ * DOM이 매번 새로 만들어져 애니메이션이 재시작된다. opacity가 들어 있으면 모달이
+ * 몇 초마다 반투명하게 깜빡인다(전적·규칙·라지티츄·소원·용 모달 전부). transform만 남긴다. */
+@keyframes up { from { transform: translateY(40px); } to { transform: none; } }
+@keyframes pop { from { transform: scale(.97); } to { transform: none; } }
 .sheet h2 { font-size: 18px; margin-bottom: 10px; text-align: center; }
 .grandCards { display: flex; justify-content: center; padding: 4px 0 14px; }
 .grandCards .card { margin-left: -12px; }
@@ -576,3 +580,53 @@ body.office .stBar i { background: #217346; }
 body.office .stRow { background: #fff; border-bottom: 1px solid #eaeef2; border-radius: 0; }
 body.office .stRow.me { background: #f0f7f3; border: 1px solid #217346; }
 body.office .stRank.g, body.office .stRank.s, body.office .stRank.b { background: #eaeef2; color: #24292f; }
+
+/* ---------- Elo / 티어 ---------- */
+.stMeHead { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.stTier {
+  font-size: 10.5px; font-weight: 800; padding: 3px 8px; border-radius: 7px;
+  letter-spacing: .3px;
+}
+.stTier.bronze  { background: #cd8b53; color: #241a10; }
+.stTier.silver  { background: #cfd4d8; color: #2b2b2b; }
+.stTier.gold    { background: #ffd34d; color: #2b2412; }
+.stTier.diamond { background: linear-gradient(120deg, #8ce0ff, #b58cff); color: #14203a; }
+
+.stElo { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; }
+.stElo b { font-size: 26px; font-weight: 800; letter-spacing: -.5px; }
+.stElo span { font-size: 11.5px; opacity: .62; }
+
+/* 봇 앵커 눈금 — 1단·2단이 고정 기준점 */
+.stScale { margin: 2px 0 12px; }
+.stScaleBar {
+  position: relative; height: 8px; border-radius: 99px;
+  background: rgba(255,255,255,.10); margin-top: 16px;
+}
+.stFill {
+  position: absolute; left: 0; top: 0; height: 100%; border-radius: 99px;
+  background: linear-gradient(90deg, #3fa06e, #ffd34d);
+}
+.stTick { position: absolute; top: -2px; width: 2px; height: 12px; background: rgba(255,255,255,.55); }
+.stTick b {
+  position: absolute; top: -15px; left: 50%; transform: translateX(-50%);
+  font-size: 9.5px; font-weight: 700; opacity: .7; white-space: nowrap;
+}
+.stYou {
+  position: absolute; top: 50%; width: 13px; height: 13px; border-radius: 50%;
+  background: #fff; border: 2.5px solid #ffd34d; transform: translate(-50%, -50%);
+  box-shadow: 0 1px 5px rgba(0,0,0,.45);
+}
+
+.stDot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.stDot.bronze { background: #cd8b53; } .stDot.silver { background: #cfd4d8; }
+.stDot.gold { background: #ffd34d; } .stDot.diamond { background: #9cc9ff; }
+.stElo2 { width: 42px; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; font-size: 12.5px; }
+
+/* 위장 모드 */
+body.office .stElo b { color: #24292f; }
+body.office .stScaleBar { background: #eaeef2; }
+body.office .stFill { background: #217346; }
+body.office .stTick { background: #8c959f; }
+body.office .stYou { border-color: #217346; }
+body.office .stTier.gold { background: #217346; color: #fff; }
+body.office .stTier.diamond { background: #0969da; color: #fff; }
