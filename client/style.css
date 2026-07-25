@@ -134,6 +134,10 @@ input { font: inherit; }
 }
 .opp .badges { position: absolute; top: -8px; left: 50%; transform: translateX(-50%); display: flex; gap: 4px; }
 .opp .off { font-size: 10px; color: #f5b342; }
+/* 봇 사고 중 — 탐색이 1초 가까이 걸려 표시가 없으면 멈춘 줄 안다. 은은한 점멸. */
+.opp .off.thinking { color: #8fb3a0; animation: thinkPulse 1.1s ease-in-out infinite; }
+@keyframes thinkPulse { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .opp .off.thinking { animation: none; opacity: .8; } }
 
 /* ---------- 중앙 테이블 ---------- */
 .table {
@@ -387,6 +391,7 @@ body.office .opp { background: #fff; border: 1px solid #d4d4d4; border-radius: 2
 body.office .opp.partner { background: #eef6ee; }
 body.office .opp.turn { border-color: #217346; box-shadow: inset 0 0 0 1px #217346; }
 body.office .opp .off { color: #a33; }
+body.office .opp .off.thinking { color: #888; animation: none; opacity: .7; }
 body.office .mini { background: #e8e8e8; border: 1px solid #c8c8c8; }
 body.office .table { color: #444; }
 body.office .turnBanner { color: #217346; }

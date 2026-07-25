@@ -809,6 +809,10 @@ function renderTable() {
     var timerTxt = '';
     if (snap.botTimer && snap.botTimer.seat === s) timerTxt = '<div class="off">' + hour + Math.ceil(snap.botTimer.msLeft / 1000) + STR.botActsIn + '</div>';
     else if (offline) timerTxt = '<div class="off">' + STR.disconnected + '</div>';
+    // 봇 차례엔 "생각 중" 표시 — 탐색이 1초 가까이 걸려 표시가 없으면 멈춘 줄 알고 다시 탭하게 된다
+    else if (rs.isBot && g.turnSeat === s && g.phase === 'play' && !si.out) {
+      timerTxt = '<div class="off thinking">' + STR.botThinking + '</div>';
+    }
     // 게임 중 끊긴 사람을 방장이 봇으로 교체 (서버 kick_player가 봇 전환)
     if (offline && isHost()) timerTxt += '<button class="btn small ghost" data-act="kick-seat" data-seat="' + s + '" style="margin-top:4px">' + STR.toBot + '</button>';
     var partnerMark = rel === 2 ? (state.office ? '' : ' ♥') : '';

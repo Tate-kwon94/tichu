@@ -176,6 +176,7 @@ function clearBotTimer(room) {
   room.botDeadline = null;
 }
 function scheduleBots(room) {
+  var prevSeat = room.botSeat, prevDeadline = room.botDeadline; // 대행 마감 보존용(아래 참조)
   clearBotTimer(room);
   var g = room.game;
   if (!g) return;
@@ -195,10 +196,15 @@ function scheduleBots(room) {
     return;
   }
   // 2) 끊긴 사람 차례 → 30초 카운트다운 후 그 결정 1건만 대행
+  //
+  // 마감은 '남은 시간'이 아니라 '절대 시각'으로 관리한다. scheduleBots는 남의 재접속·절단마다
+  // 불리는데(bindChannel/onDisconnect), 매번 now()+30초로 다시 잡으면 회선이 흔들리는 사람이
+  // 있을 때 카운트다운이 영원히 0으로 되감겨 테이블이 통째로 멈춘다.
   if (dcSeat != null) {
+    var keep = (prevSeat === dcSeat && prevDeadline && prevDeadline > now()) ? prevDeadline : null;
     room.botSeat = dcSeat;
-    room.botDeadline = now() + TAKEOVER_MS;
-    room.botTimer = setTimeout(function () { botAct(room, dcSeat); }, TAKEOVER_MS);
+    room.botDeadline = keep || (now() + TAKEOVER_MS);
+    room.botTimer = setTimeout(function () { botAct(room, dcSeat); }, Math.max(0, room.botDeadline - now()));
   }
 }
 function botAct(room, seat) {
@@ -228,16 +234,32 @@ function botAct(room, seat) {
     // 초고수의 선언·교환(1단)·소원·용은 고수와 같은 휴리스틱(botDecide는 미지 레벨을 보통으로 처리)
     a = B.botDecide(g, seat, room.botLevel);
   }
-  if (!a) return;
-  var r = g.apply(a);
-  if (r.ok) {
-    trackHist(room, a, g);
-    room.lastActivity = now();
-    scheduleBots(room);
-    broadcast(room);
-  } else {
-    console.error('[tichu] 봇 액션 거부', room.code, seat, a.type, r.error && r.error.code);
+  // 실패 경로에서도 반드시 재스케줄한다 — 안 하면 방이 영구 정지(복구 수단 없음).
+  // 연속 실패는 보통봇으로 폴백하고, 그래도 안 되면 포기(무한 루프 방지).
+  if (!a || !g.apply(a).ok) {
+    if (a) console.error('[tichu] 봇 액션 거부', room.code, seat, a.type);
+    room.botFail = (room.botFail || 0) + 1;
+    if (room.botFail <= 3) {
+      var fb = B.botDecide(g, seat, 'normal');           // 폴백: 가장 단순·안전한 결정
+      if (fb && g.apply(fb).ok) {
+        room.botFail = 0;
+        trackHist(room, fb, g);
+        room.lastActivity = now();
+        scheduleBots(room);
+        broadcast(room);
+        return;
+      }
+      scheduleBots(room);                                 // 재시도
+    } else {
+      console.error('[tichu] 봇 연속 실패 — 방', room.code, '정지');
+    }
+    return;
   }
+  room.botFail = 0;
+  trackHist(room, a, g);
+  room.lastActivity = now();
+  scheduleBots(room);
+  broadcast(room);
 }
 
 // ---------- 방 생성/입장/퇴장 ----------
@@ -522,10 +544,16 @@ function handle(player, a) {
       var ks = a.seat | 0;
       var kp = room.seats[ks];
       if (!kp || kp.isBot || kp === player) return ackOf(a, room, err('BAD_REQUEST', '강퇴 대상이 아닙니다'));
-      room.banned = room.banned || [];
-      if (room.banned.indexOf(kp.token) < 0) room.banned.push(kp.token);
-      if (room.banned.length > 16) room.banned.shift();
-      leaveRoom(kp, 'kicked', true);
+      // 게임 중 끊긴 사람을 봇으로 돌리는 것(클라 「봇으로 교체」)은 강퇴가 아니다 — 밴하지 않는다.
+      // 밴하면 와이파이가 돌아와도 그 판 내내 못 들어온다(join_room의 KICKED 검사가 복귀 로직보다 앞).
+      // 진짜 강퇴(대기실에서 내보내기)는 그대로 밴 유지.
+      var isRecovery = !!room.game && !isConn(kp);
+      if (!isRecovery) {
+        room.banned = room.banned || [];
+        if (room.banned.indexOf(kp.token) < 0) room.banned.push(kp.token);
+        if (room.banned.length > 16) room.banned.shift();
+      }
+      leaveRoom(kp, isRecovery ? 'left' : 'kicked', true);
       return ackOf(a, rooms.get(room.code) ? room : null, null);
     }
     case 'start_game': {
