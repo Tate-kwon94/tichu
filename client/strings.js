@@ -51,6 +51,8 @@ var STR = {
   botLevelLbl: '봇 단수',
   botDevil: '악마',
   botThinking: '생각 중…',
+  statsBtn: '📊 전적',
+  statsTitle: '전적',
   botDan1: '1단',
   botDan2: '2단',
   botHintDan1: '1단 · 자가대전 약 1,700판 학습 (혼자 연습은 첫 시작 때 잠깐 준비)',

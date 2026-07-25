@@ -5,6 +5,7 @@ var crypto = require('crypto');
 var path = require('path');
 var C = require('../shared/tichu-core.js');
 var B = require('../shared/bots.js');
+var STATS = require('./stats.js');
 
 // 초고수 봇(신경망+탐색 하이브리드) — 첫 사용 시 가중치 로드(~3MB)
 var superBot = null;
@@ -26,8 +27,25 @@ function getDeclare() {
   return declNet;
 }
 
+/* 전적 집계 — 사람 액션·봇 액션 두 경로가 모두 trackHist를 지나므로 여기 한 곳에서 훅한다.
+ * 같은 라운드를 두 번 세지 않도록 roundSummary 객체 동일성으로 중복을 막는다. */
+function recordStats(room, g) {
+  if (!g.roundSummary || room.lastSummary === g.roundSummary) return;
+  room.lastSummary = g.roundSummary;
+  var names = [0, 1, 2, 3].map(function (s) {
+    var p = room.seats[s];
+    return (p && !p.isBot) ? p.name : null;      // 봇은 집계 제외
+  });
+  if (!names.some(Boolean)) return;              // 전원 봇이면 기록할 것 없음
+  try {
+    STATS.recordRound(names, g.roundSummary);
+    if (g.roundSummary.gameOver) STATS.recordGame(names, g.roundSummary.winnerTeam);
+  } catch (e) { console.error('[tichu] 전적 기록 실패', e.message); }
+}
+
 // 플레이 이력(라운드 내 최근 수) — 초고수 신경망 입력. 라운드 경계에서 리셋
 function trackHist(room, act, g) {
+  recordStats(room, g);
   if (!room.playHist) room.playHist = [];
   if (act.type === 'next_round' || act.type === 'restart') { room.playHist = []; return; }
   if (act.type === 'pass_turn') room.playHist.push({ s: act.seat, t: 'pass', r: 0, l: 0 });

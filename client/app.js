@@ -19,6 +19,7 @@ var state = {
   help: false,
   helpFromModal: false,  // 모달 위에 띄운 도움말인지 (닫으면 원래 모달로)
   replaced: false,
+  stats: null,           // 전적 { loaded, detail, board }
   office: false,         // 엑셀 위장 모드
   xlStyle: '',           // 위장 카드 시안: ''=기존 카드형, '1'=셀+무늬, '2'=셀+문자코드, '3'=셀+숫자만
   ghost: 0,              // 반투명 모드 0=끔 1=연하게 2=아주 연하게 (위장과 병행 가능)
@@ -616,12 +617,13 @@ function renderHome() {
     '<button class="btn ghost" data-act="solo">' + STR.solo + '</button>' +
     (canResume ? '<button class="btn ghost" data-act="solo-resume">' + STR.soloResume + '</button>' : '') +
     botLevelPicker(true) +
-    '<div class="row"><button class="btn ghost grow" data-act="help-open">' + STR.rulesBtn + '</button>' +
-    '<button class="btn ghost grow" data-act="office-toggle">' + (state.office ? '위장 끄기' : '▦ 위장') + '</button>' +
+    '<div class="row"><button class="btn ghost grow" data-act="stats-open">' + STR.statsBtn + '</button>' +
+    '<button class="btn ghost grow" data-act="help-open">' + STR.rulesBtn + '</button></div>' +
+    '<div class="row"><button class="btn ghost grow" data-act="office-toggle">' + (state.office ? '위장 끄기' : '▦ 위장') + '</button>' +
     xlStyleBtnHtml() +
     ghostBtnHtml() + '</div>' +
     '<div class="connStatus"><span id="connTxt"></span></div>' +
-  '</div>' + (state.help ? helpModal() : '');
+  '</div>' + (state.help ? helpModal() : '') + (state.statsOpen ? statsModal() : '');
 }
 
 // 열린 방 목록 — 홈의 중심. 연결 중에도 영역을 보여주고, 게임중 방도 표시(비활성)
@@ -1074,6 +1076,93 @@ function historyTable(g) {
   return '<table class="sumTable" style="margin-top:6px"><tr style="opacity:.7"><td>라운드</td><td>증감(우리/상대)</td><td>누적</td></tr>' + rows + '</table>';
 }
 
+/* 전적 조회 — 서버가 집계원본. Render 무료는 재시작 시 디스크가 날아가므로
+ * 조회할 때마다 내 기록을 localStorage에 백업하고, 서버가 비었으면 그 백업을 보여준다. */
+function openStats() {
+  state.statsOpen = true;
+  state.stats = { loaded: false };
+  render();
+  var nm = (state.name || '').trim();
+  var urls = ['/stats'];
+  if (nm) urls.push('/stats?name=' + encodeURIComponent(nm));
+  Promise.all(urls.map(function (u) {
+    return fetch(u).then(function (r) { return r.ok ? r.json() : {}; }).catch(function () { return {}; });
+  })).then(function (rs) {
+    var board = (rs[0] && rs[0].board) || [];
+    var detail = (rs[1] && rs[1].detail) || null;
+    if (detail) {                                    // 서버 기록 → 로컬 백업
+      try { localStorage.setItem('tichu.stats.' + nm, JSON.stringify(detail)); } catch (e) {}
+    } else if (nm) {                                 // 서버가 비었으면 백업본 사용
+      try {
+        var bk = localStorage.getItem('tichu.stats.' + nm);
+        if (bk) { detail = JSON.parse(bk); detail.fromBackup = true; }
+      } catch (e) {}
+    }
+    state.stats = { loaded: true, board: board, detail: detail };
+    render();
+  });
+}
+
+/* 전적 모달 — 닉네임 기준. 서버가 날아가도 개인 기록은 남도록 localStorage 백업본도 병합.
+ * 디자인: 상단에 내 요약 카드(큰 숫자), 아래 리더보드. 위장 모드에선 숫자만 남는 표로 바뀐다. */
+function pct(n, d) { return d ? Math.round(100 * n / d) + '%' : '–'; }
+
+function statsModal() {
+  var S = state.stats || {};
+  var me = S.detail, board = S.board || [];
+  var loading = !S.loaded;
+  var body = '';
+
+  if (loading) {
+    body = '<div class="stEmpty">불러오는 중…</div>';
+  } else if (!me && !board.length) {
+    body = '<div class="stEmpty">아직 기록이 없습니다<br><span style="opacity:.6;font-size:12px">' +
+      '온라인 방에서 게임을 끝내면 전적이 쌓입니다</span></div>';
+  } else {
+    if (me) {
+      // 내 요약 — 큰 숫자 3개 + 세부 배지
+      body += '<div class="stMe">' +
+        '<div class="stMeName">' + esc(me.name) + '</div>' +
+        '<div class="stBig">' +
+          '<div class="stBigCell"><b>' + pct(me.wins, me.games) + '</b><span>승률</span></div>' +
+          '<div class="stBigCell"><b>' + me.wins + '<i>/' + me.games + '</i></b><span>승/판</span></div>' +
+          '<div class="stBigCell"><b>' + (me.ppr >= 0 ? '+' : '') + me.ppr.toFixed(1) + '</b><span>라운드당</span></div>' +
+        '</div>' +
+        '<div class="stTags">' +
+          '<span class="stTag">스몰 티츄 <b>' + pct(me.tichuOk, me.tichu) + '</b> <i>' + me.tichuOk + '/' + me.tichu + '</i></span>' +
+          '<span class="stTag">라지 <b>' + pct(me.grandOk, me.grand) + '</b> <i>' + me.grandOk + '/' + me.grand + '</i></span>' +
+          '<span class="stTag">원투 <b>' + me.oneTwo + '</b>회</span>' +
+        '</div>';
+      if (me.partners && me.partners.length) {
+        body += '<div class="stSub">파트너 궁합</div><div class="stPartners">' +
+          me.partners.map(function (p) {
+            return '<div class="stPRow"><span class="stPName">' + esc(p.name) + '</span>' +
+              '<span class="stBar"><i style="width:' + Math.round(100 * p.wins / Math.max(p.games, 1)) + '%"></i></span>' +
+              '<span class="stPNum">' + pct(p.wins, p.games) + ' <i>' + p.wins + '/' + p.games + '</i></span></div>';
+          }).join('') + '</div>';
+      }
+      body += '</div>';
+    }
+    if (board.length) {
+      body += '<div class="stSub">순위 <span style="opacity:.55;font-weight:400">· 3판 이상</span></div>' +
+        '<div class="stBoard">' + board.map(function (r, i) {
+          var medal = i === 0 ? 'g' : i === 1 ? 's' : i === 2 ? 'b' : '';
+          var isMe = me && r.name === me.name;
+          return '<div class="stRow' + (isMe ? ' me' : '') + '">' +
+            '<span class="stRank ' + medal + '">' + (i + 1) + '</span>' +
+            '<span class="stName">' + esc(r.name) + '</span>' +
+            '<span class="stRate">' + pct(r.wins, r.games) + '</span>' +
+            '<span class="stGames">' + r.games + '판</span></div>';
+        }).join('') + '</div>';
+    }
+  }
+
+  return '<div class="backdrop center" data-act="stats-close"><div class="sheet stSheet" data-stop="1">' +
+    '<h2>' + STR.statsTitle + '</h2>' + body +
+    '<button class="btn ghost" style="width:100%;margin-top:12px" data-act="stats-close">닫기</button>' +
+    '</div></div>';
+}
+
 function helpModal() {
   return '<div class="backdrop center"><div class="sheet" style="max-height:80vh;overflow:auto">' +
     '<h2>티츄 간단 규칙</h2>' +
@@ -1289,6 +1378,8 @@ function onClick(e) {
     }
     case 'next-round': send({ type: 'next_round' }); break;
     case 'restart': send({ type: 'restart_game' }); break;
+    case 'stats-open': openStats(); break;
+    case 'stats-close': state.statsOpen = false; render(); break;
     case 'help-open': state.help = true; state.helpFromModal = false; render(); break;
     case 'help-modal': state.help = true; state.helpFromModal = true; render(); break;
     case 'help-close': state.help = false; state.helpFromModal = false; render(); break;

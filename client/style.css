@@ -500,3 +500,79 @@ body.ghost2 #app > *:not(.xl) { opacity: .22; }
   .hand { min-height: 84px; }
   .card { width: 46px; height: 66px; }
 }
+
+/* ---------- 전적 ---------- */
+.stSheet { max-height: 82vh; overflow: auto; }
+.stEmpty { text-align: center; padding: 28px 8px; opacity: .7; font-size: 14px; line-height: 1.6; }
+
+/* 내 요약 — 큰 숫자로 한눈에 */
+.stMe {
+  background: linear-gradient(160deg, rgba(255,211,77,.10), rgba(255,255,255,.04));
+  border: 1px solid rgba(255,211,77,.22);
+  border-radius: 16px; padding: 14px; margin-bottom: 14px;
+}
+.stMeName { font-weight: 800; font-size: 15px; color: #ffd34d; margin-bottom: 10px; }
+.stBig { display: flex; gap: 8px; }
+.stBigCell {
+  flex: 1; text-align: center; background: rgba(0,0,0,.20);
+  border-radius: 12px; padding: 10px 4px;
+}
+.stBigCell b { display: block; font-size: 22px; font-weight: 800; letter-spacing: -.5px; line-height: 1.1; }
+.stBigCell b i { font-size: 13px; font-weight: 600; font-style: normal; opacity: .55; }
+.stBigCell span { display: block; font-size: 11px; opacity: .6; margin-top: 3px; }
+
+.stTags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.stTag {
+  font-size: 11.5px; padding: 5px 9px; border-radius: 9px;
+  background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.09);
+}
+.stTag b { color: #ffd34d; font-weight: 700; }
+.stTag i { font-style: normal; opacity: .5; font-size: 10.5px; }
+
+.stSub { font-size: 12px; font-weight: 700; opacity: .8; margin: 12px 0 7px; }
+
+/* 파트너 궁합 — 막대로 직관화 */
+.stPartners { display: flex; flex-direction: column; gap: 5px; }
+.stPRow { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.stPName { width: 64px; flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stBar { flex: 1; height: 7px; border-radius: 99px; background: rgba(255,255,255,.10); overflow: hidden; }
+.stBar i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, #3fa06e, #ffd34d); }
+.stPNum { width: 66px; flex: none; text-align: right; font-variant-numeric: tabular-nums; }
+.stPNum i { font-style: normal; opacity: .5; font-size: 11px; }
+
+/* 리더보드 */
+.stBoard { display: flex; flex-direction: column; gap: 3px; }
+.stRow {
+  display: flex; align-items: center; gap: 9px; padding: 8px 10px;
+  border-radius: 11px; background: rgba(255,255,255,.045); font-size: 13px;
+}
+.stRow.me { background: rgba(255,211,77,.13); border: 1px solid rgba(255,211,77,.28); }
+.stRank {
+  width: 21px; height: 21px; flex: none; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 800; background: rgba(255,255,255,.09);
+}
+.stRank.g { background: #ffd34d; color: #2b2412; }
+.stRank.s { background: #cfd4d8; color: #2b2b2b; }
+.stRank.b { background: #cd8b53; color: #241a10; }
+.stName { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.stRate { font-weight: 800; font-variant-numeric: tabular-nums; }
+.stGames { width: 40px; text-align: right; font-size: 11.5px; opacity: .55; font-variant-numeric: tabular-nums; }
+
+/* 위장 모드 — 색 빼고 스프레드시트처럼. 배경은 전부 불투명(뒤 비침 방지) */
+body.office .stSheet { background: #fff; }
+body.office .stMe { background: #fbfcfd; border-color: #d0d7de; }
+body.office .stEmpty { color: #57606a; }
+body.office .stSub { color: #24292f; opacity: 1; }
+body.office .stBar { background: #eaeef2; }
+body.office .stPNum, body.office .stGames { color: #57606a; }
+body.office .stName, body.office .stRate { color: #24292f; }
+body.office .stMeName { color: #217346; }
+body.office .stBigCell { background: #f6f8fa; }
+body.office .stBigCell b { color: #24292f; }
+body.office .stTag { background: #f6f8fa; border-color: #d0d7de; }
+body.office .stTag b { color: #217346; }
+body.office .stBar i { background: #217346; }
+body.office .stRow { background: #fff; border-bottom: 1px solid #eaeef2; border-radius: 0; }
+body.office .stRow.me { background: #f0f7f3; border: 1px solid #217346; }
+body.office .stRank.g, body.office .stRank.s, body.office .stRank.b { background: #eaeef2; color: #24292f; }
