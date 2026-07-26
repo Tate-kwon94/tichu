@@ -52,7 +52,8 @@ var MAX_PENDING = 200;
  *  실력 우위가 승률로 잘 안 옮겨진다.)
  */
 var ELO_START = 1000;
-var BOT_ELO = { easy: 700, normal: 850, hard: 950, super: 1000, super2: 1070, devil: 1400 };
+var BOT_ELO = { easy: 700, normal: 850, hard: 950, super: 1000, super2: 1070, super3: 1120, devil: 1400 };
+// super3 앵커 1120은 잠정 — 960게임 승단전 확정 후 명목 승률로 재산정해 갱신한다.
 var ELO_DAILY_CAP = 60;          // 하루 변동 상한 — 몰아치기 방지
 /* 봇전 가중치 — 승패 '양쪽 모두' 절반. 대칭이어야 하는 이유:
  * 승리만 깎으면 억제가 아니라 편향이 된다(실측: 2단과 동급인 사람이 955로 수렴 →
@@ -393,7 +394,7 @@ function detail(name) {
     rate: s.games ? s.wins / s.games : 0,
     elo: Math.round(s.elo), eloPeak: Math.round(s.eloPeak || s.elo),
     tier: tierOf(s.elo), provisional: s.games < 10,
-    anchors: { dan1: BOT_ELO.super, dan2: BOT_ELO.super2 },
+    anchors: { dan1: BOT_ELO.super, dan2: BOT_ELO.super2, dan3: BOT_ELO.super3 },
     rounds: s.rounds, ppr: s.rounds ? s.pts / s.rounds : 0,
     tichu: s.tichu, tichuOk: s.tichuOk, grand: s.grand, grandOk: s.grandOk,
     oneTwo: s.oneTwo, partners: partners

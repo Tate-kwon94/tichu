@@ -17,6 +17,18 @@ function getSuperBot() {
   }
   return superBot;
 }
+// 3단 봇 — swa13_18(RL 체크포인트 평균) 가중치 + 종반 완전탐색 + 티츄 가드 + 트리플 보존 교환.
+// 승단전(960게임 사전등록)을 통과한 조합 그대로만 배선한다 — 측정 안 된 재료는 싣지 않는다.
+var super3Bot = null;
+function getSuper3Bot() {
+  if (!super3Bot) {
+    var HY3 = require(path.join(__dirname, '..', 'shared', 'hybrid-bot.js'));
+    super3Bot = HY3.create(path.join(__dirname, '..', 'shared', 'weights-super3.json'));
+    console.log('[tichu] 3단 가중치 로드 완료');
+  }
+  return super3Bot;
+}
+var EG = require(path.join(__dirname, '..', 'shared', 'endgame.js'));
 // 선언(티츄/라지) 신경망 — 66만 라운드 학습, EV 보정 임계
 var declNet = null;
 function getDeclare() {
@@ -249,7 +261,8 @@ function botAct(room, seat) {
   // 1단(super)·2단(super2)은 동결. 2단 = 1단 코드 그대로 + 교환에서 마작·개 보유(⑦).
   // 검증(2026-07-24): 950ms 240판 짝지음 +22.56점/라운드 → 점수차 66.2%. 사용자가 점수차 기준 확정.
   // 이득은 원투 완주 보너스에서 나온다(카드 점수 기여 −0.20). 1단(super) 경로는 한 줄도 건드리지 않음.
-  var isSuper = room.botLevel === 'super' || room.botLevel === 'super2';
+  var isSuper = room.botLevel === 'super' || room.botLevel === 'super2' || room.botLevel === 'super3';
+  var isDan3 = room.botLevel === 'super3';
   var superTichu = isSuper && p && p.isBot && g.phase === 'play' && g.turnSeat === seat &&
     !g.playedFirst[seat] && !g.tichu[seat] && getDeclare().tichu(g.hands[seat]);
   var heurTichu = !isSuper && p && p.isBot && room.botLevel !== 'easy' && g.phase === 'play' &&
@@ -260,6 +273,15 @@ function botAct(room, seat) {
     a = { type: 'call_grand', seat: seat, call: getDeclare().grand(g.hands[seat]) }; // 선언 신경망(동결)
   } else if (room.botLevel === 'super2' && g.phase === 'exchange' && !g.exchangeGive[seat]) {
     a = { type: 'submit_exchange', seat: seat, give: B.botExchange(g, seat, { keepSpecials: true }) }; // ⑦ 2단 전용
+  } else if (isDan3 && g.phase === 'exchange' && !g.exchangeGive[seat]) {
+    // 3단 교환: 2단(⑦) + 트리플 보존(같은 랭크 3장+는 폭탄 잠재라 안 나눔 — 게이트 +1.25±0.31)
+    a = { type: 'submit_exchange', seat: seat, give: B.botExchange(g, seat, { keepSpecials: true, keepTriples: true }) };
+  } else if (isDan3 && g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
+    // 3단 플레이: 종반(전원 손패 ≤4) 완전탐색 다수결 → 아니면 PUCT → 파트너 티츄 가드
+    a = null;
+    if (EG.maxHand(g) <= 4) a = EG.endgameMove(g, seat, { K: 12, nodeCap: 6000 });
+    if (!a) a = getSuper3Bot().decidePuct(g, seat, room.playHist || [], { budgetMs: 950, c: 1.0 });
+    a = B.guardPartnerTichu(g, seat, a);
   } else if (isSuper && g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
     a = getSuperBot().decidePuct(g, seat, room.playHist || [], { budgetMs: 950, c: 1.0 });
     // 파트너 티츄 가드(B.guardPartnerTichu)는 사용자 결정으로 2단에 미적용 — 3단 전용 재료
@@ -631,7 +653,7 @@ function handle(player, a) {
       // 실사용(점심 소모임)에선 동시 봇게임이 드물어 허용; 트래픽이 늘면 워커 분리가 답.
       // 1단 = v6 신경망(폭2배) + PUCT(c=1.0) 하이브리드. v3-챔피언+ 직접 58.8%로 이겨 승격(고수950 대비 ~60%)
       // 악마(상대 패 열람)는 사람에게 불공정 → 제외
-      room.botLevel = ['easy', 'normal', 'hard', 'super', 'super2'].indexOf(a.botLevel) >= 0 ? a.botLevel : 'normal';
+      room.botLevel = ['easy', 'normal', 'hard', 'super', 'super2', 'super3'].indexOf(a.botLevel) >= 0 ? a.botLevel : 'normal';
       room.playHist = [];
       room.game = new C.Game({ targetScore: ts });
       room.gver++;

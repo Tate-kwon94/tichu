@@ -1,5 +1,5 @@
 /* 혼자 연습 모드 — 로컬 엔진 + 봇 3명, 서버 불필요, localStorage 이어하기 */
-/* global TichuCore, TichuBots */
+/* global TichuCore, TichuBots, TichuEndgame */
 var OfflineSession = (function () {
 'use strict';
 var SAVE_KEY = 'tichu.solo';
@@ -7,8 +7,8 @@ var NAMES = ['나', '레오', '미나', '준'];
 
 function create(handlers, resume, botLevel, superHy, declNet) {
   var C = TichuCore, B = TichuBots;
-  botLevel = ['easy', 'normal', 'hard', 'devil', 'super', 'super2'].indexOf(botLevel) >= 0 ? botLevel : 'normal';
-  if ((botLevel === 'super' || botLevel === 'super2') && !superHy) botLevel = 'hard'; // 가중치 미로드 시 안전 폴백
+  botLevel = ['easy', 'normal', 'hard', 'devil', 'super', 'super2', 'super3'].indexOf(botLevel) >= 0 ? botLevel : 'normal';
+  if ((botLevel === 'super' || botLevel === 'super2' || botLevel === 'super3') && !superHy) botLevel = 'hard'; // 가중치 미로드 시 안전 폴백
   var hist = []; // 라운드 내 플레이 이력 — 초고수 신경망 입력
   function trackHist(a) {
     if (a.type === 'next_round' || a.type === 'restart') { hist = []; return; }
@@ -63,7 +63,8 @@ function create(handlers, resume, botLevel, superHy, declNet) {
       var s = w[0];
       var a = null;
       // 1단(super)·2단(super2) 동결. 2단 = 1단 그대로 + 교환에서 마작·개 보유(⑦).
-      var isSuper = botLevel === 'super' || botLevel === 'super2';
+      var isSuper = botLevel === 'super' || botLevel === 'super2' || botLevel === 'super3';
+      var isDan3 = botLevel === 'super3';
       var wantTichu = game.phase === 'play' && game.turnSeat === s && !game.playedFirst[s] && !game.tichu[s] &&
         (isSuper && declNet ? declNet.tichu(game.hands[s])
           : (botLevel !== 'easy' && !isSuper && B.botTichu(game.hands[s])));
@@ -73,6 +74,17 @@ function create(handlers, resume, botLevel, superHy, declNet) {
         a = { type: 'call_grand', seat: s, call: declNet.grand(game.hands[s]) }; // 선언 신경망(동결)
       } else if (botLevel === 'super2' && game.phase === 'exchange' && !game.exchangeGive[s]) {
         a = { type: 'submit_exchange', seat: s, give: B.botExchange(game, s, { keepSpecials: true }) }; // ⑦ 2단 전용
+      } else if (isDan3 && game.phase === 'exchange' && !game.exchangeGive[s]) {
+        // 3단 교환: ⑦ + 트리플 보존(게이트 +1.25±0.31)
+        a = { type: 'submit_exchange', seat: s, give: B.botExchange(game, s, { keepSpecials: true, keepTriples: true }) };
+      } else if (isDan3 && game.phase === 'play' && game.turnSeat === s && game.finished.indexOf(s) < 0) {
+        // 3단: 종반 완전탐색 → PUCT → 파트너 티츄 가드 (승단전 통과 조합 그대로)
+        a = null;
+        if (typeof TichuEndgame !== 'undefined' && TichuEndgame.maxHand(game) <= 4) {
+          a = TichuEndgame.endgameMove(game, s, { K: 12, nodeCap: 6000 });
+        }
+        if (!a) a = superHy.decidePuct(game, s, hist, { budgetMs: 900, c: 1.0 });
+        a = B.guardPartnerTichu(game, s, a);
       } else if (isSuper && game.phase === 'play' && game.turnSeat === s && game.finished.indexOf(s) < 0) {
         a = superHy.decidePuct(game, s, hist, { budgetMs: 900, c: 1.0 });
       } else {

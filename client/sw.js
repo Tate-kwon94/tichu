@@ -17,6 +17,7 @@ var ASSETS = [
   'shared/net-infer.js?' + V,
   'shared/hybrid-bot.js?' + V,
   'shared/declare.js?' + V,
+  'shared/endgame.js?' + V,
   'manifest.webmanifest',
   'icons/icon.svg',
   'icons/xlsx.svg',
