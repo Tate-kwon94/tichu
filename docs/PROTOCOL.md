@@ -7,7 +7,8 @@
 - 모든 메시지는 JSON. `type` 필드(snake_case) 필수.
 - **스냅샷 전체 동기화**: 서버는 변경 시마다 플레이어별로 가려진(redacted) 전체 스냅샷을 보낸다.
   델타/리플레이 없음 → 재접속·폴백·복구가 전부 "최신 스냅샷 1개"로 해결된다.
-- `version`: 방 단위 단조 증가. 클라이언트는 자신이 가진 것보다 낮거나 같은 버전은 버린다.
+- `version`: 방 단위 단조 증가(스냅샷 순번 — 재접속·참석 변화에도 오름). 클라이언트는 자신이 가진 것보다 낮거나 같은 버전은 버린다.
+- `gver`: 게임 상태 버전 — 성공한 게임 액션에만 증가. 플레이의 STALE 판정은 이것으로만 한다(재접속으로 version만 급증해도 정당한 플레이가 거부되지 않게).
 - `actionId`: `"<clientId>-<카운터>"`. 서버는 플레이어별 최근 32개를 기억해 재전송 시 같은 ack를 돌려준다(멱등).
 - 카드 ID: `S|H|D|C` + `2-9,T,J,Q,K,A` (예: `"ST"`=♠10) + 특수 `"MJ","DG","PH","DR"`.
 - 좌석 0–3. 팀 A = 0+2, 팀 B = 1+3. 차례 0→1→2→3 = **반시계 방향**(공식 규칙).
@@ -38,7 +39,7 @@
 | `set_name` | `name` | 대기실에서만, 12자 |
 | `add_bot` / `remove_bot` | `seat` | 방장만, 대기실에서만 |
 | `kick_player` | `seat` | 방장만. 게임 중이면 그 자리는 봇으로 전환 |
-| `start_game` | `targetScore?`(300/500/1000), `botLevel?`(easy/normal/hard/super) | 방장만. 빈자리 봇 채움 → grand. **온라인은 easy/normal/hard/super**(고수·초고수 탐색은 950ms 시간컷). super(초고수)=신경망 하이브리드, 서버 전용(가중치 server/weights/super.json). devil(악마, 상대 패 열람)은 불공정 → 서버에서 거부, 혼자 연습에서만 |
+| `start_game` | `targetScore?`(300/500/1000), `botLevel?`(easy/normal/hard/super/super2/super3) | 방장만. 빈자리 봇 채움 → grand. 단(段) 봇: super=1단, super2=2단(+교환 개선), super3=3단(+종반 완전탐색·티츄 가드·트리플 보존) — 탐색 950ms 시간컷, 가중치 shared/weights-super*.json. devil(악마, 상대 패 열람)은 불공정 → 서버에서 거부, 혼자 연습에서만 |
 | `list_rooms` | — | 방 목록. ack에 `rooms:[{code,host,occupied,humans,bots,inGame,target}]` 포함 (최신순, 최대 30) |
 | `leave_room` | — | 게임 중 나가면 영구 봇 전환 |
 | `call_grand` | `call`(bool) | 8장 보고 응답. 4명 모두 응답하면 6장 추가 배분 → exchange |
@@ -52,14 +53,14 @@
 | `to_lobby` | — | 게임 종료(또는 라운드 종료) 후 대기실 복귀. 봇 좌석은 비우고 사람은 유지 |
 | `chat` | `text`(≤200자) | 방 전체에 브로드캐스트. 제어문자 제거, 0.6초 레이트리밋. 게임 version은 올리지 않음 |
 
-**version 규칙**: `pass_turn`은 버전 게이트 없음 — 엔진(_pass)이 차례·선두·소원을 재검증(정당한 패스가 버전 지연으로 거부되던 버그 해결). `play_cards`는 version 불일치 시 `STALE_VERSION`, 단 폭탄(bomb4/bombstraight)은 현재 상태 기준으로 재검증 통과.
+**version/gver 규칙**: `pass_turn`은 버전 게이트 없음 — 엔진(_pass)이 차례·선두·소원을 재검증(정당한 패스가 버전 지연으로 거부되던 버그 해결). `play_cards`는 `gver` 불일치 시 `STALE_VERSION`(gver 없는 구클라이언트는 version 폴백), 단 폭탄(bomb4/bombstraight)은 현재 상태 기준으로 재검증 통과.
 
 ## 서버 → 클라이언트
 
 | type | 필드 |
 |---|---|
-| `welcome` | `token`, `resumed`, `protocolVersion`, `version`, `snapshot`(방에 있으면) |
-| `room_state` | `version`, `snapshot` |
+| `welcome` | `token`, `resumed`, `protocolVersion`, `version`, `gver`, `snapshot`(방에 있으면) |
+| `room_state` | `version`, `gver`, `snapshot` |
 | `action_ack` | `actionId`, `ok`, `version`, `error?{code,message}` |
 | `session_replaced` | — (같은 토큰의 새 연결이 생겨 이 연결이 대체됨) |
 | `left_room` | `reason`: `kicked` / `room_closed` / `left` |
@@ -68,6 +69,12 @@
 에러코드: `ROOM_NOT_FOUND, ROOM_FULL, GAME_IN_PROGRESS, SEAT_TAKEN, NOT_HOST, BAD_PHASE,
 NOT_YOUR_TURN, CARDS_NOT_IN_HAND, INVALID_COMBO, COMBO_TOO_LOW, WISH_REQUIRED,
 CANNOT_PASS_LEAD, STALE_VERSION, BAD_REQUEST, RATE_LIMITED, KICKED`
+
+## GET /stats — 전적·Elo (인증 없음, 동료 내부용)
+- `GET /stats` → `{ board: [...상위 20], persist: {rev, mode, ready, probe, restored, players, lastError} }`
+  - `persist`는 영구저장(Cloudflare KV) 운영 상태 — rev=배포 커밋 7자, probe=read/write/readonly/error.
+  - 진단 세부(config·hint)는 `?diag=<TICHU_DIAG>` 일치 시에만 포함.
+- `GET /stats?name=<닉네임>` → `{ detail: {games, wins, elo, tier, anchors{dan1,dan2,dan3}, partners...} }`
 
 ## 스냅샷 구조 (플레이어별 redacted)
 
