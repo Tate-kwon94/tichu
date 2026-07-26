@@ -328,7 +328,7 @@ function detail(name) {
 /* 저장 상태 — /stats에 함께 실어 보내 배포 직후 눈으로 확인할 수 있게 한다.
  * (Render 로그를 열지 않고도 "영구저장이 켜졌나"를 밖에서 확인할 수 있어야 한다.) */
 function status() {
-  return {
+  var st = {
     mode: KV.enabled() ? 'kv' : 'file',
     ready: hydrated,
     probe: kvProbe,              // read=복원함 write=쓰기확인 readonly=권한부족 error=연결실패
@@ -336,6 +336,8 @@ function status() {
     players: Object.keys(stats).length,
     lastError: kvLastErr
   };
+  if (KV.enabled() && (kvProbe === 'error' || kvProbe === 'readonly')) st.config = KV.shape();
+  return st;
 }
 
 load();

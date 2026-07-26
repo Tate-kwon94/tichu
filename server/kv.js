@@ -12,13 +12,37 @@
  */
 'use strict';
 
-var ACCOUNT = process.env.CF_ACCOUNT_ID || '';
-var NS = process.env.CF_KV_NAMESPACE_ID || '';
-var TOKEN = process.env.CF_KV_TOKEN || '';
+/* 환경변수 정리 — 대시보드에 붙여넣을 때 딸려오는 공백·줄바꿈·따옴표를 제거한다.
+ * 이걸 안 하면 토큰에 공백 한 칸이 섞여 401이 나고, 값은 눈으로 멀쩡해 보인다. */
+function envClean(name) {
+  var v = process.env[name] || '';
+  v = v.trim();
+  if (v.length >= 2 && ((v[0] === '"' && v.slice(-1) === '"') || (v[0] === "'" && v.slice(-1) === "'"))) {
+    v = v.slice(1, -1).trim();
+  }
+  return v;
+}
+
+var ACCOUNT = envClean('CF_ACCOUNT_ID');
+var NS = envClean('CF_KV_NAMESPACE_ID');
+var TOKEN = envClean('CF_KV_TOKEN');
 var BASE = process.env.CF_API_BASE || 'https://api.cloudflare.com/client/v4';
 var TIMEOUT_MS = 8000;
 
 function enabled() { return !!(ACCOUNT && NS && TOKEN); }
+
+/* 설정 형태 점검 — 값 자체는 노출하지 않고 "모양"만 본다.
+ * Cloudflare API 토큰은 40자 [A-Za-z0-9_-], 계정·네임스페이스 ID는 32자 16진수,
+ * Global API Key는 37자 16진수(이건 Bearer로 못 쓴다 — 흔한 착각). */
+function shape() {
+  var out = { accountLen: ACCOUNT.length, nsLen: NS.length, tokenLen: TOKEN.length, warn: [] };
+  if (ACCOUNT && !/^[0-9a-f]{32}$/i.test(ACCOUNT)) out.warn.push('계정 ID 형식이 32자 16진수가 아님');
+  if (NS && !/^[0-9a-f]{32}$/i.test(NS)) out.warn.push('네임스페이스 ID 형식이 32자 16진수가 아님');
+  if (TOKEN && /^[0-9a-f]{37}$/i.test(TOKEN)) out.warn.push('Global API Key로 보임 — API 토큰(40자)을 발급해야 함');
+  else if (TOKEN && TOKEN.length !== 40) out.warn.push('토큰 길이가 40자가 아님(' + TOKEN.length + '자) — 잘려 붙었을 수 있음');
+  if (ACCOUNT && NS && ACCOUNT === NS) out.warn.push('계정 ID와 네임스페이스 ID가 같음 — 같은 값을 두 칸에 넣었을 수 있음');
+  return out;
+}
 
 function url(key) {
   return BASE + '/accounts/' + encodeURIComponent(ACCOUNT) +
@@ -92,4 +116,4 @@ async function put(key, value) {
   throw lastErr || new Error('KV PUT 실패');
 }
 
-module.exports = { enabled: enabled, get: get, put: put };
+module.exports = { enabled: enabled, get: get, put: put, shape: shape };
