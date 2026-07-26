@@ -24,6 +24,18 @@ async function main() {
     process.exit(1);
   }
 
+  process.stdout.write('0) 토큰 유효성… ');
+  var v = await KV.verifyToken();
+  if (!v.ok) {
+    console.log('실패');
+    console.error('\n✗ ' + v.why);
+    console.error('\nCloudflare가 토큰 자체를 거부했습니다. 계정·네임스페이스 ID는 이 단계와 무관합니다.');
+    console.error('My Profile → API Tokens → Create Token → Custom token 으로 새로 발급하고,');
+    console.error('생성 직후 한 번만 보이는 값을 그대로(앞뒤 공백 없이) 넣으세요.');
+    process.exit(1);
+  }
+  console.log('유효');
+
   var key = 'tichu:selfcheck';
   var value = JSON.stringify({ hello: '티츄', at: new Date().toISOString() });
 
