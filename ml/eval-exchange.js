@@ -47,6 +47,10 @@ var STRATS = {
   // 2×2 분해 — 개는 양날이다: 보유하면 "선을 잡아야만 싱글로 낼 수 있는" 부담이지만,
   // 파트너에게 선을 넘겨 원투 완주(1·2등 보너스)를 만드는 도구이기도 하다.
   // 상대에게 주면 부담을 떠넘기는 동시에 그 도구도 넘긴다. 어느 쪽이 큰지는 재야 안다.
+  // 보존 교환(3단 후보, 사용자 피드백): 폭탄 잠재 카드는 상대에게 주지 않는다
+  keep_triple: function (g, s) { return B.botExchange(g, s, { keepSpecials: true, keepTriples: true }); },
+  keep_sf: function (g, s) { return B.botExchange(g, s, { keepSpecials: true, keepStraightFlush: true }); },
+  keep_preserve: function (g, s) { return B.botExchange(g, s, { keepSpecials: true, keepTriples: true, keepStraightFlush: true }); },
   keep_mj: function (g, s) {                                       // 마작만 보유, 개는 상대에게
     var h = C.sortHand(g.hands[s]), n = normalsAsc(h);
     var opp = h.indexOf('DG') >= 0 ? ['DG', n[0]] : n.slice(0, 2);
@@ -257,6 +261,12 @@ NAMES.forEach(function (n) {
   console.log('  ' + n.padEnd(12) + (s.m >= 0 ? '+' : '') + s.m.toFixed(2).padStart(7) +
               '      ' + (ds.m >= 0 ? '+' : '') + ds.m.toFixed(2) + ' ± ' + ds.se.toFixed(2) +
               '      ' + (ds.m * 0.72 >= 0 ? '+' : '') + (ds.m * 0.72).toFixed(1) + '%p');
+});
+NAMES.slice(1).forEach(function (n) {
+  var diff = acc[n].map(function (x, i) { return x.tot - b[i].tot; });
+  var nz = diff.filter(function (d) { return d !== 0; }).length;
+  var ds = stat(diff);
+  console.log('XD ' + n + ' ' + ds.m.toFixed(4) + ' ' + ds.se.toFixed(4) + ' ' + used + ' ' + nz);
 });
 console.log('\n  [이득의 출처 — base 대비 차이]');
 console.log('  전략            카드점수    티츄보너스   원투보너스');

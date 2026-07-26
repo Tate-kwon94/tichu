@@ -125,6 +125,8 @@ function hyDecide(g, seat, hist) {
     if (hasCand('endgame') && EG.maxHand(g) <= (+process.env.TICHU_EG_CAP || 4)) {
       var em = EG.endgameMove(g, seat, { K: +process.env.TICHU_EG_K || 12,
         nodeCap: +process.env.TICHU_EG_NODECAP || 6000 });   // 6000 = 12세계 최악 ~0.5s, 예산 내
+      // 종반 솔버도 같은 결정화 맹점(선언=강패 정보 부재) — 가드를 우회하면 안 된다
+      if (em && hasCand('guardTichu')) em = B.guardPartnerTichu(g, seat, em);
       if (em) return em;
     }
     var opts = { budgetMs: hyMs, temp: hyTemp, c: (+process.argv[10] || 1.5),
