@@ -30,7 +30,7 @@ function create(netOrPath) {
     else {
       a = { type: 'play_cards', seat: seat, cards: cand.c };
       if (cand.c.indexOf('MJ') >= 0) {
-        var wsh = B.botWish(g.hands[seat].filter(function (id) { return cand.c.indexOf(id) < 0; }));
+        var wsh = B.botWish(g.hands[seat].filter(function (id) { return cand.c.indexOf(id) < 0; }), (typeof globalThis !== 'undefined' && globalThis.__TICHU_WISH_COUNT) ? g : null); // 카운팅 소원(3단 재료, 잠김)
         if (wsh) a.wish = wsh;
       }
     }
@@ -241,7 +241,7 @@ function create(netOrPath) {
     if (pick.t === 'pass') return { type: 'pass_turn', seat: seat };
     var a = { type: 'play_cards', seat: seat, cards: pick.c };
     if (pick.c.indexOf('MJ') >= 0) {
-      var wsh = B.botWish(g.hands[seat].filter(function (id) { return pick.c.indexOf(id) < 0; }));
+      var wsh = B.botWish(g.hands[seat].filter(function (id) { return pick.c.indexOf(id) < 0; }), (typeof globalThis !== 'undefined' && globalThis.__TICHU_WISH_COUNT) ? g : null);
       if (wsh) a.wish = wsh;
     }
     return a;

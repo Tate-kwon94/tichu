@@ -87,6 +87,7 @@ if (oppLevel.indexOf('hy:') === 0) {
 // 2단 후보 프로파일 — 주(main) 봇에만 켜지는 ①②③ 개선 (상대=동결 1단은 미적용).
 // 사용: TICHU_CAND=declAdjust,holdValue,oppRead node eval-hybrid.js ...
 var CAND = (process.env.TICHU_CAND || '').split(',').filter(Boolean);
+if (CAND.indexOf('wishCount') >= 0) globalThis.__TICHU_WISH_COUNT = 1; // 카운팅 소원(주봇 탐색 경로 전체)
 function hasCand(f) { return CAND.indexOf(f) >= 0; }
 /* 상대(기준선)측 프로파일 — 사다리가 올라가면 기준선도 올라간다.
  *   3단 승단전: TICHU_OPP_CAND=exchange (상대 = 동결 2단)

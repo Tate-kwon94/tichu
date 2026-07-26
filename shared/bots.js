@@ -179,10 +179,28 @@ function botExchange(game, seat, opts) {
 }
 
 // ---------- 소원 선택: 내게 없는 높은 숫자 ----------
-function botWish(handAfterPlay) {
+// game을 주면(3단 재료, 사용자 피드백) 카운팅 소원: 이미 다 나온 랭크는 부르지 않는다.
+// 소원은 "그 랭크를 낼 수 있으면 반드시 내야 한다"로 상대 손을 묶는 도구인데,
+// 소진된 랭크를 부르면 아무도 안 묶인다(실제로 A 소진 후 A를 부르는 헛소원 관측).
+// game 없이 부르면 기존 동작 그대로(1·2단 동결).
+function botWish(handAfterPlay, game) {
   var have = {};
   handAfterPlay.forEach(function (id) { if (!isSpecial(id)) have[rankOf(id)] = true; });
-  for (var r = 14; r >= 2; r--) if (!have[r]) return r;
+  var seen = null;
+  if (game && game.tricksWon) {
+    seen = {};
+    var addSeen = function (id) { if (!isSpecial(id)) seen[rankOf(id)] = (seen[rankOf(id)] || 0) + 1; };
+    handAfterPlay.forEach(addSeen);                      // 내 손(소원 시점 잔여)도 본 카드
+    (game.trickPile || []).forEach(addSeen);             // 현재 트릭
+    for (var s = 0; s < 4; s++) (game.tricksWon[s] || []).forEach(addSeen);   // 딴 더미들
+  }
+  for (var r = 14; r >= 2; r--) {
+    if (have[r]) continue;
+    if (seen && (seen[r] || 0) >= 4) continue;           // 소진된 랭크 — 헛소원
+    return r;
+  }
+  // 전부 소진·보유면 카운팅 무시하고 기존 규칙(소원 안 걸기는 −6.85 실측 손해)
+  for (var r2 = 14; r2 >= 2; r2--) if (!have[r2]) return r2;
   return null;
 }
 

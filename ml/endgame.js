@@ -49,7 +49,7 @@ function solve(game, nodeCap) {
     for (var i = 0; i < moves.length; i++) {
       var a = { type: 'play_cards', seat: s, cards: moves[i].cards };
       if (moves[i].cards.indexOf('MJ') >= 0) {
-        var wsh = B.botWish(g.hands[s].filter(function (id) { return moves[i].cards.indexOf(id) < 0; }));
+        var wsh = B.botWish(g.hands[s].filter(function (id) { return moves[i].cards.indexOf(id) < 0; }), (typeof globalThis !== 'undefined' && globalThis.__TICHU_WISH_COUNT) ? g : null);
         if (wsh) a.wish = wsh;
       }
       acts.push(a);
@@ -85,7 +85,7 @@ function solve(game, nodeCap) {
   gm0.moves.forEach(function (m) {
     var a = { type: 'play_cards', seat: s0, cards: m.cards };
     if (m.cards.indexOf('MJ') >= 0) {
-      var wsh = B.botWish(game.hands[s0].filter(function (id) { return m.cards.indexOf(id) < 0; }));
+      var wsh = B.botWish(game.hands[s0].filter(function (id) { return m.cards.indexOf(id) < 0; }), (typeof globalThis !== 'undefined' && globalThis.__TICHU_WISH_COUNT) ? game : null);
       if (wsh) a.wish = wsh;
     }
     rootActs.push(a);
