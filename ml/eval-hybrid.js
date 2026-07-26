@@ -143,6 +143,8 @@ function hyDecide(g, seat, hist) {
       : hy.decide(g, seat, hist, opts);
     // 3단 후보: 파트너 티츄 보호 가드 — 사다리(봇 파트너)에도 이득인지 측정용
     if (hasCand('guardTichu')) act = B.guardPartnerTichu(g, seat, act);
+    // 3단 후보: 봉황 싱글 가드 — 용 미소진·무대응 상태의 봉황 싱글을 억제(사용자 피드백)
+    if (hasCand('phxGuard')) act = B.guardPhoenixSingle(g, seat, act);
     return act;
   }
   // ⑦ 교환: 마작·개를 상대에게 넘기지 않는다 (2단 후보). 상대측(고정 1단)은 기존 그대로.

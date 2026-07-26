@@ -521,11 +521,35 @@ function guardPartnerTichu(game, seat, action) {
   return nb || action;
 }
 
+/* 봉황 싱글 가드(3단 재료, 사용자 피드백) — "용이 빠졌거나 용이 나와도 대응 가능해야".
+ * 실측: 2단은 용 소재와 무관하게 봉황 베팅(용 미출현 6/8 vs 소진 7/8). 점수상 용↔봉황은
+ * 등가 교환이라 평가가 겁을 안 내지만, 봉황의 콤보 유연성 가치는 플레이아웃이 못 쓴다.
+ * 조건: 용이 소진됐거나 / 내 손에 있거나 / 폭탄 보유면 허용. 아니면 패스(리드면 최저 싱글).
+ * 강제 수(소원 등)면 건드리지 않는다. 손해인지는 게이트가 판정한다. */
+function guardPhoenixSingle(game, seat, action) {
+  if (!action || action.type !== 'play_cards') return action;
+  if (!(action.cards && action.cards.length === 1 && action.cards[0] === 'PH')) return action;
+  var hand = game.hands[seat];
+  if (hand.length <= 2) return action;                   // 종반 필연은 막지 않음
+  if (hand.indexOf('DR') >= 0) return action;
+  var seen = (game.trickPile || []).slice();
+  for (var s = 0; s < 4; s++) seen = seen.concat(game.tricksWon[s] || []);
+  if (seen.indexOf('DR') >= 0) return action;            // 용 소진 — 안전
+  if (hasBomb(hand)) return action;                      // 용 대응 수단 보유
+  var gm = genMoves(hand, game.currentCombo, game.wish);
+  if (gm.forced) return action;                          // 강제 수 — 엔진 거부 방지
+  if (game.currentCombo) return { type: 'pass_turn', seat: seat };
+  var lows = sortHand(hand).filter(function (id) { return !isSpecial(id); });
+  if (lows.length) return { type: 'play_cards', seat: seat, cards: [lows[0]] };
+  return action;
+}
+
 return {
   botGrand: botGrand,
   botTichu: botTichu,
   botExchange: botExchange,
   guardPartnerTichu: guardPartnerTichu,
+  guardPhoenixSingle: guardPhoenixSingle,
   botWish: botWish,
   botDragon: botDragon,
   botPlay: botPlay,
