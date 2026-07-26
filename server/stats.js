@@ -3,20 +3,35 @@
  * 왜 닉네임인가: 동료끼리 하는 게임이라 도용 걱정이 적고, 폰↔PC를 오가도 전적이 이어진다.
  * (토큰 기반이면 기기가 바뀌는 순간 남이 된다.)
  *
- * 저장: data/stats.json에 디바운스 기록. Render 무료는 재시작 시 디스크가 날아가므로
+ * 저장 2층:
+ *   ① data/stats.json — 항상. 로컬 개발·자체 호스팅에선 이것만으로 충분.
+ *   ② Cloudflare KV — 환경변수가 있을 때만. Render 무료는 배포뿐 아니라 15분 유휴 후에도
+ *      컨테이너를 재생성해 디스크가 날아가므로, 외부에 두지 않으면 전적이 매일 초기화된다.
  * 클라이언트도 자기 전적을 localStorage에 백업한다(서버가 날아가도 개인 기록은 남음).
  */
 'use strict';
 var fs = require('fs');
 var path = require('path');
+var KV = require('./kv.js');
 
 var FILE = path.join(__dirname, '..', 'data', 'stats.json');
+var KV_KEY = process.env.CF_KV_KEY || 'tichu:stats:v1';
 var MAX_PLAYERS = 500;          // 닉네임 수 상한 — 메모리·파일 비대 방지
 var SAVE_DEBOUNCE_MS = 5000;
+/* KV 쓰기 최소 간격 — 무료 한도가 쓰기 1,000/일이라 병적인 루프에 대비한 안전판.
+ * 실사용(게임 종료마다 1회, 하루 수십 판)에선 걸리지 않는다. */
+var KV_MIN_INTERVAL_MS = 120000;
 
 var stats = Object.create(null);  // 닉네임 → 집계
 var saveTimer = null;
 var dirty = false;
+var kvLastPut = 0;
+var kvPutting = false;
+var kvDirty = false;             // 파일과 별개 추적 — KV는 간격 제한이 있어 밀릴 수 있다
+var shuttingDown = false;        // 종료 플러시 후 쓰기 금지(신 인스턴스 데이터 덮어쓰기 방지)
+var hydrated = !KV.enabled();    // KV 미사용이면 동기 load()로 끝 → 처음부터 준비 완료
+var pending = [];                // 하이드레이션 전 도착한 기록(부팅 직후 수초) — 순서대로 재생
+var MAX_PENDING = 200;
 
 /* ── Elo ──────────────────────────────────────────────────────────────
  * 봇을 고정 앵커로 쓴다. 봇 단수는 동결(1단·2단)이라 기준점이 흔들리지 않으므로,
@@ -61,38 +76,99 @@ function blank() {
   };
 }
 
+function adopt(raw, where) {
+  var n = 0;
+  Object.keys(raw).forEach(function (k) {
+    var s = raw[k];
+    if (s && typeof s.games === 'number') {
+      stats[k] = s;
+      s.partners = s.partners || Object.create(null);
+      if (typeof s.elo !== 'number') { s.elo = ELO_START; s.eloPeak = ELO_START; s.eloDay = ''; s.eloToday = 0; }
+      n++;
+    }
+  });
+  console.log('[tichu] 전적 로드 ' + n + '명 (' + where + ')');
+}
+
 function load() {
   try {
     var raw = JSON.parse(fs.readFileSync(FILE, 'utf8'));
-    if (raw && typeof raw === 'object') {
-      Object.keys(raw).forEach(function (k) {
-        var s = raw[k];
-        if (s && typeof s.games === 'number') {
-          stats[k] = s;
-          s.partners = s.partners || Object.create(null);
-          if (typeof s.elo !== 'number') { s.elo = ELO_START; s.eloPeak = ELO_START; s.eloDay = ''; s.eloToday = 0; }
-        }
-      });
-      console.log('[tichu] 전적 로드 ' + Object.keys(stats).length + '명');
-    }
+    if (raw && typeof raw === 'object') adopt(raw, '파일');
   } catch (e) { /* 파일 없음/손상 — 빈 상태로 시작 */ }
 }
 
-function save() {
-  saveTimer = null;
-  if (!dirty) return;
-  dirty = false;
+/* KV에서 부팅 시 1회 복원. 원격이 정본이다 — 이 컨테이너의 파일은 방금 만들어진 빈 디스크거나
+ * (드물게) 같은 인스턴스가 남긴 사본이라, 둘이 다르면 원격이 더 완전하다.
+ * 하이드레이션 도중 들어온 기록은 pending에 쌓았다가 복원 뒤 순서대로 재생한다
+ * (병합으로 때우면 "원격 50판 vs 메모리 1판" 충돌에서 한쪽을 반드시 잃는다). */
+async function hydrate() {
+  try {
+    var body = await KV.get(KV_KEY);
+    if (body) {
+      var raw = JSON.parse(body);
+      if (raw && typeof raw === 'object') {
+        Object.keys(stats).forEach(function (k) { delete stats[k]; });
+        adopt(raw, 'KV');
+      }
+    } else {
+      console.log('[tichu] KV에 전적 없음 — 새로 시작');
+    }
+  } catch (e) {
+    console.error('[tichu] KV 복원 실패 — 파일 상태로 계속:', e.message);
+  } finally {
+    hydrated = true;
+    var q = pending; pending = [];
+    q.forEach(function (job) { try { job(); } catch (e) { /* 개별 기록 실패는 무시 */ } });
+    if (q.length) console.log('[tichu] 부팅 중 도착한 기록 ' + q.length + '건 재생');
+  }
+}
+
+function saveFile() {
   try {
     fs.mkdirSync(path.dirname(FILE), { recursive: true });
     fs.writeFileSync(FILE + '.tmp', JSON.stringify(stats));
     fs.renameSync(FILE + '.tmp', FILE);   // 원자적 교체 — 쓰다 죽어도 기존 파일 보존
   } catch (e) { console.error('[tichu] 전적 저장 실패', e.message); }
 }
+
+/* KV 기록. 간격 제한에 걸리면 kvDirty를 남겨 다음 저장 때 따라잡는다. */
+async function saveKV(force) {
+  if (!KV.enabled() || !kvDirty || kvPutting || shuttingDown) return;
+  var wait = KV_MIN_INTERVAL_MS - (Date.now() - kvLastPut);
+  if (!force && wait > 0) return;
+  kvPutting = true;
+  var snapshot = JSON.stringify(stats);
+  try {
+    await KV.put(KV_KEY, snapshot);
+    kvLastPut = Date.now();
+    kvDirty = false;
+  } catch (e) {
+    console.error('[tichu] KV 저장 실패(다음 기회에 재시도):', e.message);
+  } finally { kvPutting = false; }
+}
+
+function save() {
+  saveTimer = null;
+  if (!dirty) return;
+  dirty = false;
+  saveFile();
+  saveKV(false);
+}
 function scheduleSave() {
   dirty = true;
+  kvDirty = true;
   if (saveTimer) return;
   saveTimer = setTimeout(save, SAVE_DEBOUNCE_MS);
   if (saveTimer.unref) saveTimer.unref();
+}
+
+/* 종료 직전 마지막 플러시 — Render는 배포·유휴 절전 전에 SIGTERM을 보낸다.
+ * 플러시 후 shuttingDown을 세워, 교체된 신 인스턴스의 데이터를 뒤늦게 덮어쓰지 않게 한다. */
+async function flush() {
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+  if (dirty) { dirty = false; saveFile(); }
+  await saveKV(true);
+  shuttingDown = true;
 }
 
 // 닉네임 수가 상한을 넘으면 가장 오래된 것부터 정리
@@ -108,10 +184,17 @@ function get(name) {
   return stats[name];
 }
 
+/* 하이드레이션 전 도착한 기록을 큐에 넣는다(부팅 직후 수백 ms 창).
+ * KV가 죽어 하이드레이션이 안 끝나도 큐가 무한히 자라지 않게 상한을 둔다. */
+function defer(job) {
+  if (pending.length < MAX_PENDING) pending.push(job);
+}
+
 /* 라운드 종료 시 호출 — 라운드 단위 지표(티츄 성패·원투·점수차)를 쌓는다.
  * seatNames: [좌석0..3 이름 또는 null(봇)]. 봇은 집계하지 않는다. */
 function recordRound(seatNames, summary) {
   if (!summary) return;
+  if (!hydrated) return defer(function () { recordRound(seatNames, summary); });
   var d = summary.deltas || { teamA: 0, teamB: 0 };
   for (var s = 0; s < 4; s++) {
     var nm = seatNames[s];
@@ -137,6 +220,7 @@ function recordRound(seatNames, summary) {
  * seatNames[s] = 사람 닉네임 또는 null(봇), seatBots[s] = 봇 단수 키('super2' 등) 또는 null. */
 function recordGame(seatNames, winnerTeam, seatBots) {
   if (!winnerTeam) return;
+  if (!hydrated) return defer(function () { recordGame(seatNames, winnerTeam, seatBots); });
   seatBots = seatBots || [];
 
   // 좌석별 현재 Elo — 사람은 기록값, 봇은 고정 앵커
@@ -221,4 +305,15 @@ function detail(name) {
 }
 
 load();
-module.exports = { recordRound: recordRound, recordGame: recordGame, board: board, detail: detail, save: save, BOT_ELO: BOT_ELO };
+if (KV.enabled()) {
+  console.log('[tichu] 전적 영구저장: Cloudflare KV (' + KV_KEY + ')');
+  hydrate();
+} else {
+  console.log('[tichu] 전적 영구저장: 파일만 — 호스팅이 디스크를 지우면 초기화됨');
+}
+
+module.exports = {
+  recordRound: recordRound, recordGame: recordGame,
+  board: board, detail: detail,
+  save: save, flush: flush, BOT_ELO: BOT_ELO
+};

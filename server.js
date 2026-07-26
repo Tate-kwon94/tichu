@@ -7,6 +7,7 @@ var os = require('os');
 var transports = require('./server/transports.js');
 var ws = require('./server/ws.js');
 var rooms = require('./server/rooms.js');
+var stats = require('./server/stats.js');
 
 var PORT = parseInt(process.env.PORT || '8080', 10);
 
@@ -33,6 +34,22 @@ rooms.startGC();
 // 어떤 예외도 프로세스를 죽이지 않게 (게임 서버 생존 우선)
 process.on('uncaughtException', function (e) { console.error('[tichu] uncaughtException:', e && e.stack || e); });
 process.on('unhandledRejection', function (e) { console.error('[tichu] unhandledRejection:', e); });
+
+/* 종료 전 전적 플러시 — Render는 배포·유휴 절전 전에 SIGTERM을 보낸다.
+ * 원격 저장은 비동기라 그냥 죽으면 마지막 게임이 날아간다. 늦어도 6초 뒤엔 종료. */
+var closing = false;
+function shutdown(sig) {
+  if (closing) return;
+  closing = true;
+  console.log('[tichu] ' + sig + ' — 전적 저장 후 종료');
+  var hard = setTimeout(function () { process.exit(0); }, 6000);
+  if (hard.unref) hard.unref();
+  Promise.resolve(stats.flush())
+    .catch(function (e) { console.error('[tichu] 종료 플러시 실패:', e && e.message); })
+    .then(function () { clearTimeout(hard); process.exit(0); });
+}
+process.on('SIGTERM', function () { shutdown('SIGTERM'); });
+process.on('SIGINT', function () { shutdown('SIGINT'); });
 
 server.listen(PORT, '0.0.0.0', function () {
   console.log('티츄 서버 시작 — 포트 ' + PORT);
