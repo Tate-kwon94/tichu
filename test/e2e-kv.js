@@ -41,7 +41,11 @@ var kvServer = http.createServer(function (req, res) {
   if (req.method === 'GET') {
     if (mode === 'fail') { res.writeHead(500); res.end('boom'); return; }
     var send = function () {
-      if (store[key] == null) { res.writeHead(404); res.end('{"success":false}'); return; }
+      if (store[key] == null) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end('{"success":false,"errors":[{"code":10009,"message":"get: \'key not found\'"}]}');
+        return;
+      }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(store[key]);
     };

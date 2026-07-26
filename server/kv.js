@@ -44,7 +44,13 @@ async function get(key) {
       headers: { Authorization: 'Bearer ' + TOKEN },
       signal: to.signal
     });
-    if (r.status === 404) return null;                 // 키 없음 = 첫 실행
+    if (r.status === 404) {
+      /* 404는 두 가지다: 키 없음(첫 실행, 정상) vs 계정·네임스페이스 ID 오타(설정 오류).
+       * 구분하지 않으면 ID를 잘못 넣어도 "빈 KV"처럼 보여 조용히 파일 저장으로 살아간다. */
+      var t404 = await r.text();
+      if (/key not found/i.test(t404)) return null;
+      throw new Error('KV GET 404 — 계정/네임스페이스 ID 확인: ' + t404.slice(0, 200));
+    }
     if (!r.ok) throw new Error('KV GET ' + r.status + ' ' + (await r.text()).slice(0, 200));
     return await r.text();
   } finally { if (to.clear) to.clear(); }

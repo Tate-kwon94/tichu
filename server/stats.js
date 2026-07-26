@@ -126,11 +126,13 @@ async function hydrate() {
         console.log('[tichu] KV 쓰기 권한 확인 OK');
       } catch (e2) {
         kvProbe = 'readonly';
+        kvLastErr = e2.message;
         console.error('[tichu] KV 쓰기 실패 — 토큰 권한이 Edit인지 확인:', e2.message);
       }
     }
   } catch (e) {
     kvProbe = 'error';
+    kvLastErr = e.message;      // 밖에서 보여야 진단이 된다(/stats의 persist.lastError)
     console.error('[tichu] KV 복원 실패 — 파일 상태로 계속:', e.message);
   } finally {
     hydrated = true;
