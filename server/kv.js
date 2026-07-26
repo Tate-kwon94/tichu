@@ -20,6 +20,14 @@ function envClean(name) {
   if (v.length >= 2 && ((v[0] === '"' && v.slice(-1) === '"') || (v[0] === "'" && v.slice(-1) === "'"))) {
     v = v.slice(1, -1).trim();
   }
+  // 값 칸에 "CF_KV_TOKEN=..." 처럼 변수 이름째 붙여넣은 경우 (실제로 겪음: 토큰이 52자 = 12+40)
+  if (v.indexOf(name + '=') === 0) v = v.slice(name.length + 1).trim();
+  // "Bearer xxx" 로 붙여넣은 경우
+  if (/^bearer\s+/i.test(v)) v = v.replace(/^bearer\s+/i, '').trim();
+  // 따옴표가 이름 뒤쪽에 남아 있을 수 있다
+  if (v.length >= 2 && ((v[0] === '"' && v.slice(-1) === '"') || (v[0] === "'" && v.slice(-1) === "'"))) {
+    v = v.slice(1, -1).trim();
+  }
   return v;
 }
 
