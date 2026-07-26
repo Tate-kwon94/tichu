@@ -143,9 +143,16 @@ function hyDecide(g, seat, hist) {
     return act;
   }
   // ⑦ 교환: 마작·개를 상대에게 넘기지 않는다 (2단 후보). 상대측(고정 1단)은 기존 그대로.
-  // exchTriple(3단 후보): 같은 랭크 3장+는 나누지 않음(폭탄 잠재 보존 — 사용자 피드백)
+  // exchTriple/exchSF(3단 후보): 랭크 3장+ / 스티플 잠재(같은 무늬 5랭크 창 4장+) 보존 — 사용자 피드백
   if (hasCand('exchange') && g.phase === 'exchange' && !g.exchangeGive[seat]) {
-    return { type: 'submit_exchange', seat: seat, give: B.botExchange(g, seat, { keepSpecials: true, keepTriples: hasCand('exchTriple') }) };
+    return {
+      type: 'submit_exchange', seat: seat,
+      give: B.botExchange(g, seat, {
+        keepSpecials: true,
+        keepTriples: hasCand('exchTriple'),
+        keepStraightFlush: hasCand('exchSF')
+      })
+    };
   }
   return B.botDecide(g, seat, 'normal'); // 교환·소원·용 — 휴리스틱 유지
 }

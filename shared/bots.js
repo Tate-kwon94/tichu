@@ -128,16 +128,39 @@ function botExchange(game, seat, opts) {
     if (hand.indexOf('MJ') >= 0) opp.push('MJ');
     if (hand.indexOf('DG') >= 0) opp.push('DG');
   }
-  /* keepTriples(3단 후보): 같은 랭크 3장 이상은 나누지 않는다 — 낮은 트리플에 한 장만
-   * 들어와도 폭탄이 되고, 이미 4장(폭탄)이면 더더욱 깨면 안 된다(현행은 2222도 나눠줬다).
-   * 사람들이 실제로 쓰는 규칙(사용자 피드백). 대상이 모자라면 그냥 최저부터. */
-  var rankCnt = {};
-  if (opts && opts.keepTriples) {
-    for (var rc = 0; rc < hand.length; rc++) {
-      if (!isSpecial(hand[rc])) rankCnt[rankOf(hand[rc])] = (rankCnt[rankOf(hand[rc])] || 0) + 1;
+  /* 보존 교환(3단 후보) — 폭탄 잠재가 있는 카드는 나누지 않는다(사용자 피드백: 사람들의 실전 규칙).
+   * keepTriples: 같은 랭크 3장+ 보존 — 한 장만 들어와도 4장 폭탄. (현행은 2222 완성 폭탄도 나눴다)
+   * keepStraightFlush: 같은 무늬가 5랭크 창 안에 4장+ 몰리면 보존 — 완성 스티플(5장+)과
+   *   한 칸 빈 4장 모두 해당. 봉황은 폭탄에 못 끼므로 순수 같은 무늬만 본다.
+   * 보호 대상을 빼고도 줄 카드가 모자라면 그냥 최저부터(폴백). */
+  var protectedGive = {};
+  if (opts && (opts.keepTriples || opts.keepStraightFlush)) {
+    if (opts.keepTriples) {
+      var rankCnt = {};
+      for (var rc = 0; rc < hand.length; rc++) {
+        if (!isSpecial(hand[rc])) rankCnt[rankOf(hand[rc])] = (rankCnt[rankOf(hand[rc])] || 0) + 1;
+      }
+      for (var rp = 0; rp < hand.length; rp++) {
+        if (!isSpecial(hand[rp]) && rankCnt[rankOf(hand[rp])] >= 3) protectedGive[hand[rp]] = 1;
+      }
+    }
+    if (opts.keepStraightFlush) {
+      var bySuit = {};
+      for (var sf = 0; sf < hand.length; sf++) {
+        if (isSpecial(hand[sf])) continue;
+        var su = hand[sf][0];
+        (bySuit[su] = bySuit[su] || []).push(hand[sf]);
+      }
+      Object.keys(bySuit).forEach(function (su2) {
+        var cards = bySuit[su2];
+        for (var w = 2; w <= 10; w++) {                  // 창 [w, w+4]
+          var inWin = cards.filter(function (id) { var r = rankOf(id); return r >= w && r <= w + 4; });
+          if (inWin.length >= 4) inWin.forEach(function (id) { protectedGive[id] = 1; });
+        }
+      });
     }
     for (var i0 = 0; i0 < hand.length && opp.length < 2; i0++) {
-      if (!isSpecial(hand[i0]) && opp.indexOf(hand[i0]) < 0 && rankCnt[rankOf(hand[i0])] < 3) opp.push(hand[i0]);
+      if (!isSpecial(hand[i0]) && opp.indexOf(hand[i0]) < 0 && !protectedGive[hand[i0]]) opp.push(hand[i0]);
     }
   }
   for (var i = 0; i < hand.length && opp.length < 2; i++) {

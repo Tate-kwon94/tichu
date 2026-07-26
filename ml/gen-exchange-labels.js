@@ -36,7 +36,17 @@ function candidates(hand) {
   // 랭크 3장+ 보유 카드 집합 — 트리플 보존 후보용(사용자 피드백: 낮은 트리플은 폭탄 잠재라 안 나눔)
   var cnt = {};
   n.forEach(function (id) { cnt[C.rankOf(id)] = (cnt[C.rankOf(id)] || 0) + 1; });
-  var nonTriple = n.filter(function (id) { return cnt[C.rankOf(id)] < 3; });
+  // 스티플 잠재(같은 무늬 5랭크 창 4장+) 보호 카드 — 트리플과 합쳐 '보존' 후보를 만든다
+  var sfProt = {};
+  var bySuit = {};
+  n.forEach(function (id) { (bySuit[id[0]] = bySuit[id[0]] || []).push(id); });
+  Object.keys(bySuit).forEach(function (su) {
+    for (var w = 2; w <= 10; w++) {
+      var inWin = bySuit[su].filter(function (id) { var r = C.rankOf(id); return r >= w && r <= w + 4; });
+      if (inWin.length >= 4) inWin.forEach(function (id) { sfProt[id] = 1; });
+    }
+  });
+  var nonTriple = n.filter(function (id) { return cnt[C.rankOf(id)] < 3 && !sfProt[id]; });
   var pOpts = [n[n.length - 1], n[n.length - 2], n[n.length - 3]].filter(Boolean);
   function push(p, o) {
     if (!p || !o[0] || !o[1] || o[0] === o[1] || o[0] === p || o[1] === p) return;
