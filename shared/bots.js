@@ -128,6 +128,18 @@ function botExchange(game, seat, opts) {
     if (hand.indexOf('MJ') >= 0) opp.push('MJ');
     if (hand.indexOf('DG') >= 0) opp.push('DG');
   }
+  /* keepTriples(3단 후보): 같은 랭크 3장 이상은 나누지 않는다 — 낮은 트리플에 한 장만
+   * 들어와도 폭탄이 되고, 이미 4장(폭탄)이면 더더욱 깨면 안 된다(현행은 2222도 나눠줬다).
+   * 사람들이 실제로 쓰는 규칙(사용자 피드백). 대상이 모자라면 그냥 최저부터. */
+  var rankCnt = {};
+  if (opts && opts.keepTriples) {
+    for (var rc = 0; rc < hand.length; rc++) {
+      if (!isSpecial(hand[rc])) rankCnt[rankOf(hand[rc])] = (rankCnt[rankOf(hand[rc])] || 0) + 1;
+    }
+    for (var i0 = 0; i0 < hand.length && opp.length < 2; i0++) {
+      if (!isSpecial(hand[i0]) && opp.indexOf(hand[i0]) < 0 && rankCnt[rankOf(hand[i0])] < 3) opp.push(hand[i0]);
+    }
+  }
   for (var i = 0; i < hand.length && opp.length < 2; i++) {
     if (!isSpecial(hand[i]) && opp.indexOf(hand[i]) < 0) opp.push(hand[i]);
   }
@@ -453,10 +465,26 @@ function botDecide(game, seat, level) {
   return null;
 }
 
+/* 파트너 티츄 보호 가드(배포층) — 탐색봇(고수·1단·2단)의 선택이 파트너의 살아있는 티츄를
+ * 죽이는 손비우기/1장남기기일 때, 보통봇의 안전수(protectPartner 내장)로 교체한다.
+ * 왜 필요한가: 결정화가 "선언 = 강한 패" 정보를 반영하지 못해 탐색봇의 세계에서 파트너
+ * 티츄는 대부분 실패한다 → "어차피 죽을 티츄, 내가 완주"가 합리가 된다(실측: 3페어에서
+ * 4/4 완주). 잘못된 믿음 위의 합리라 평가 개선이 아니라 하드 가드가 답이다. */
+function guardPartnerTichu(game, seat, action) {
+  if (!action || action.type !== 'play_cards') return action;
+  var partner = partnerOf(seat);
+  if (!(game.tichu[partner] > 0) || game.firstOutSeat !== null) return action;
+  var left = game.hands[seat].length - (action.cards ? action.cards.length : 0);
+  if (left >= 2) return action;
+  var nb = botDecide(game, seat, 'normal');   // protectPartner가 안전수/패스를 고른다
+  return nb || action;
+}
+
 return {
   botGrand: botGrand,
   botTichu: botTichu,
   botExchange: botExchange,
+  guardPartnerTichu: guardPartnerTichu,
   botWish: botWish,
   botDragon: botDragon,
   botPlay: botPlay,

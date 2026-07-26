@@ -133,15 +133,19 @@ function hyDecide(g, seat, hist) {
       perfect: process.env.TICHU_PERFECT === '1',                    // 3단 헤드룸: 투시(완전정보)
       playout: process.env.TICHU_PLAYOUT || undefined,                // 'neural'=신경망 플레이아웃
       oppK: +process.env.TICHU_OPPK || 0 };                          // 상대-연속 편향 제거(첫 K수)
-    if (mode === 'oracle1ply') return hy.decideOracle1ply(g, seat, hist, opts);  // 3단 게이트: 1-ply 오라클
-    if (mode === 'sh') return hy.decideSH(g, seat, hist, opts);   // ⑤ Sequential Halving 뿌리 배분
-    if (mode === 'puct') return hy.decidePuct(g, seat, hist, opts);
-    if (mode === 'plus') return hy.decidePlus(g, seat, hist, opts);
-    return hy.decide(g, seat, hist, opts);
+    var act = mode === 'oracle1ply' ? hy.decideOracle1ply(g, seat, hist, opts)  // 3단 게이트: 1-ply 오라클
+      : mode === 'sh' ? hy.decideSH(g, seat, hist, opts)   // ⑤ Sequential Halving 뿌리 배분
+      : mode === 'puct' ? hy.decidePuct(g, seat, hist, opts)
+      : mode === 'plus' ? hy.decidePlus(g, seat, hist, opts)
+      : hy.decide(g, seat, hist, opts);
+    // 3단 후보: 파트너 티츄 보호 가드 — 사다리(봇 파트너)에도 이득인지 측정용
+    if (hasCand('guardTichu')) act = B.guardPartnerTichu(g, seat, act);
+    return act;
   }
   // ⑦ 교환: 마작·개를 상대에게 넘기지 않는다 (2단 후보). 상대측(고정 1단)은 기존 그대로.
+  // exchTriple(3단 후보): 같은 랭크 3장+는 나누지 않음(폭탄 잠재 보존 — 사용자 피드백)
   if (hasCand('exchange') && g.phase === 'exchange' && !g.exchangeGive[seat]) {
-    return { type: 'submit_exchange', seat: seat, give: B.botExchange(g, seat, { keepSpecials: true }) };
+    return { type: 'submit_exchange', seat: seat, give: B.botExchange(g, seat, { keepSpecials: true, keepTriples: hasCand('exchTriple') }) };
   }
   return B.botDecide(g, seat, 'normal'); // 교환·소원·용 — 휴리스틱 유지
 }

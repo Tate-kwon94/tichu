@@ -262,6 +262,8 @@ function botAct(room, seat) {
     a = { type: 'submit_exchange', seat: seat, give: B.botExchange(g, seat, { keepSpecials: true }) }; // ⑦ 2단 전용
   } else if (isSuper && g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
     a = getSuperBot().decidePuct(g, seat, room.playHist || [], { budgetMs: 950, c: 1.0 });
+    // 파트너 티츄 가드(B.guardPartnerTichu)는 사용자 결정으로 2단에 미적용 — 3단 전용 재료
+    // (2단은 검증된 상태 그대로 동결. 배신 현상은 3단에서 해소 예정)
   } else {
     // 초고수의 선언·교환(1단)·소원·용은 고수와 같은 휴리스틱(botDecide는 미지 레벨을 보통으로 처리)
     a = B.botDecide(g, seat, room.botLevel);
