@@ -72,3 +72,22 @@ HTTPS 인증서도 자동 발급됩니다. (기존 app.kwon.work는 건드리지
   Render가 자동으로 다시 배포합니다.
 - 회사 PC에서 접속이 안 되면: 주소 뒤에 `?transport=poll` 을 붙여 보세요.
   그래도 안 되면 사내 보안에서 도메인 자체를 막은 것이므로 휴대폰(LTE/5G)으로 접속하세요.
+
+
+## 전적·Elo 영구저장 — Cloudflare KV (2026-07-26 도입)
+
+Render 무료 티어는 배포뿐 아니라 15분 유휴 절전 후에도 컨테이너를 재생성해 디스크가
+초기화된다. 전적을 유지하려면 KV 연동이 필수다.
+
+환경변수 3개 (Render → 서비스 → Environment):
+
+| NAME | 값 |
+|---|---|
+| `CF_ACCOUNT_ID` | Cloudflare 계정 ID (대시보드 주소창의 32자 16진수) |
+| `CF_KV_NAMESPACE_ID` | KV 네임스페이스 ID (Storage & Databases → KV에서 생성) |
+| `CF_KV_TOKEN` | API 토큰 — 권한은 "Workers KV Storage: Edit" 한 줄만 |
+
+- 확인: `https://<도메인>/stats`의 `persist` — `probe`가 read/write면 정상, `rev`는 배포 커밋.
+- 로컬 점검: `node tools/kv-check.js` (0단계에서 토큰 유효성부터 갈라줌).
+- 선택: `TICHU_DIAG=<비밀>` 을 두면 `/stats?diag=<비밀>`로 진단 세부까지 열람.
+- 변수 없으면 파일 저장만으로 동작(로컬 개발·자체 호스팅 그대로).
