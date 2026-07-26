@@ -147,7 +147,9 @@ function snapshotFor(room, seat) {
   };
 }
 function stateEnvelope(room, seat) {
-  return { type: 'room_state', version: room.version, snapshot: snapshotFor(room, seat) };
+  // version = 스냅샷 순번(전송 dedup용, 재접속·참석 변화에도 증가)
+  // gver = 게임 상태 버전(성공한 게임 액션에만 증가) — 플레이 STALE 판정은 이것으로만
+  return { type: 'room_state', version: room.version, gver: room.gver || 0, snapshot: snapshotFor(room, seat) };
 }
 
 // ---------- 송신 ----------
@@ -266,6 +268,7 @@ function botAct(room, seat) {
       var fb = B.botDecide(g, seat, 'normal');           // 폴백: 가장 단순·안전한 결정
       if (fb && g.apply(fb).ok) {
         room.botFail = 0;
+        room.gver++;
         trackHist(room, fb, g);
         room.lastActivity = now();
         scheduleBots(room);
@@ -279,6 +282,7 @@ function botAct(room, seat) {
     return;
   }
   room.botFail = 0;
+  room.gver++;
   trackHist(room, a, g);
   room.lastActivity = now();
   scheduleBots(room);
@@ -406,6 +410,7 @@ function hello(opts) {
       resumed: !!room,
       protocolVersion: PROTO,
       version: room ? room.version : 0,
+      gver: room ? (room.gver || 0) : 0,
       snapshot: room ? snapshotFor(room, player.seat) : null
     }
   };
@@ -442,7 +447,7 @@ function handle(player, a) {
       if (!code) return ackOf(a, null, err('RATE_LIMITED', '방 코드를 만들 수 없습니다'));
       if (a.name) player.name = sanitizeName(a.name);
       var r = {
-        code: code, version: 0, game: null, hostSeat: 0,
+        code: code, version: 0, gver: 0, game: null, hostSeat: 0,
         seats: [player, null, null, null],
         createdAt: now(), lastActivity: now(),
         botTimer: null, botSeat: null, botDeadline: null,
@@ -585,12 +590,15 @@ function handle(player, a) {
       for (var f = 0; f < 4; f++) if (!room.seats[f]) room.seats[f] = makeBot(f, room);
       var ts = (a.targetScore === 300 || a.targetScore === 500 || a.targetScore === 1000) ? a.targetScore : 1000;
       room.targetScore = ts;
-      // 온라인 봇: 'super'(내부 키 유지) = 사용자 표기 "1단". 탐색은 950ms 시간컷(동시 1게임 전제)
+      // 온라인 봇: 'super'(내부 키 유지) = 사용자 표기 "1단". 탐색은 950ms 시간컷 —
+      // 봇 수마다 이벤트루프가 최대 그만큼 동기 정지한다(방 수 제한 아님, MAX_ROOMS=100).
+      // 실사용(점심 소모임)에선 동시 봇게임이 드물어 허용; 트래픽이 늘면 워커 분리가 답.
       // 1단 = v6 신경망(폭2배) + PUCT(c=1.0) 하이브리드. v3-챔피언+ 직접 58.8%로 이겨 승격(고수950 대비 ~60%)
       // 악마(상대 패 열람)는 사람에게 불공정 → 제외
       room.botLevel = ['easy', 'normal', 'hard', 'super', 'super2'].indexOf(a.botLevel) >= 0 ? a.botLevel : 'normal';
       room.playHist = [];
       room.game = new C.Game({ targetScore: ts });
+      room.gver++;
       room.lastActivity = now();
       scheduleBots(room);
       broadcast(room);
@@ -626,9 +634,15 @@ function handle(player, a) {
   // 버전 검사: 어긋난 패스는 무시, 어긋난 플레이는 폭탄만 재검증 허용
   // 패스는 버전 게이트 없이 엔진 검증에 맡김 — 정당한 패스가 버전 지연(폭탄 끼어들기·업데이트 지연)으로
   // 조용히 거부되던 버그 해결. 엔진(_pass)이 차례·선두·소원을 어차피 재검증하므로 안전.
-  if (a.type === 'play_cards' && a.version != null && a.version !== room.version) {
-    var cmb = Array.isArray(a.cards) ? C.identify(a.cards) : null;
-    if (!cmb || !C.isBomb(cmb.type)) return ackOf(a, room, err('STALE_VERSION', '상태가 갱신되었습니다'));
+  // 판정 기준은 gver(게임상태 버전) — version은 재접속·참석 변화에도 올라 정당한 플레이를
+  // 오거부했다(감사 #6). gver 없는 구클라이언트만 version 폴백.
+  if (a.type === 'play_cards') {
+    var stale = a.gver != null ? a.gver !== (room.gver || 0)
+      : (a.version != null && a.version !== room.version);
+    if (stale) {
+      var cmb = Array.isArray(a.cards) ? C.identify(a.cards) : null;
+      if (!cmb || !C.isBomb(cmb.type)) return ackOf(a, room, err('STALE_VERSION', '상태가 갱신되었습니다'));
+    }
   }
 
   var engineAction = null;
@@ -656,6 +670,7 @@ function handle(player, a) {
 
   var res = g.apply(engineAction);
   if (!res.ok) return ackOf(a, room, res.error);
+  room.gver++;
   trackHist(room, engineAction, g);
   room.lastActivity = now();
   scheduleBots(room);

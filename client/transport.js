@@ -19,6 +19,7 @@ function create(handlers) {
   // 겹치지 않게 함 (서버 세션의 멱등 ack 캐시가 새 액션을 옛 ack으로 잘못 응답하는 것 방지)
   var runSalt = Math.random().toString(36).slice(2, 6);
   var lastVersion = 0;
+  var lastGver = 0;    // 게임상태 버전 — 서버 STALE 판정은 이걸로만 (version은 전송 dedup용)
   var lastRoom = null; // 버전 게이트는 방 단위 — 방이 바뀌면 리셋 (이어받기 직행 시 스냅샷 드롭 방지)
   var mode = null, tierIdx = 0;
   var ws = null, es = null, pollRun = 0;
@@ -35,6 +36,7 @@ function create(handlers) {
       case 'welcome':
         if (msg.token) { token = msg.token; try { localStorage.setItem('tichu.token', token); } catch (e) {} }
         lastVersion = msg.version || 0;
+        lastGver = msg.gver || 0;
         lastRoom = (msg.snapshot && msg.snapshot.code) || null;
         if (msg.protocolVersion && msg.protocolVersion !== PROTO && handlers.onStale) handlers.onStale();
         if (handlers.onWelcome) handlers.onWelcome(msg);
@@ -43,9 +45,10 @@ function create(handlers) {
       case 'room_state':
         if (msg.version != null) {
           var rc = msg.snapshot && msg.snapshot.code;
-          if (rc && rc !== lastRoom) { lastRoom = rc; lastVersion = 0; }
+          if (rc && rc !== lastRoom) { lastRoom = rc; lastVersion = 0; lastGver = 0; }
           if (msg.version <= lastVersion) return;
           lastVersion = msg.version;
+          if (msg.gver != null) lastGver = msg.gver;
         }
         handlers.onState(msg.snapshot);
         break;
@@ -62,6 +65,7 @@ function create(handlers) {
         break;
       case 'left_room':
         lastVersion = 0;
+        lastGver = 0;
         lastRoom = null;
         if (handlers.onLeft) handlers.onLeft(msg.reason || 'left');
         break;
@@ -244,6 +248,7 @@ function create(handlers) {
     for (var k in action) a[k] = action[k];
     a.actionId = clientId + '-' + runSalt + '-' + (++actionCounter);
     if (needsVersion(a.type) && a.version == null) a.version = lastVersion;
+    if (needsVersion(a.type) && a.gver == null) a.gver = lastGver;
     if (mode === 'ws' && ws && ws.readyState === 1) {
       ws.send(JSON.stringify(a));
       return;

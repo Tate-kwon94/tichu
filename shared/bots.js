@@ -429,8 +429,9 @@ function botDecide(game, seat, level) {
   }
   if (phase === 'play' && game.turnSeat === seat && game.finished.indexOf(seat) < 0) {
     var mv;
-    // 고수: 시간 컷이 시뮬 도중에도 걸려 서버를 멈추지 않음. 트래픽이 적어(동시 1게임 수준)
-    //       예산을 950ms로 상향 — 빠른 기기는 표본 많이, 느린 서버는 적게. 자동 조절.
+    // 고수: 시간 컷은 이벤트루프 정지 "길이"를 예산(950ms)으로 묶을 뿐, 정지 자체는 못 막는다
+    //       (동기 탐색 — 실측으로 인터벌 타이머가 950ms 굶음). 트래픽이 적은 서비스라 허용,
+    //       예산 950ms — 빠른 기기는 표본 많이, 느린 서버는 적게. 자동 조절.
     //       __TICHU_HARD 전역으로 표본·예산 오버라이드 가능(측정·튜닝용).
     if (level === 'devil') mv = searchMove(game, seat, { perfect: true, samples: 1, budgetMs: 400 });
     else if (level === 'hard') {
