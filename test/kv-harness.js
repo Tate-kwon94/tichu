@@ -28,6 +28,8 @@ async function main() {
     return;
   }
 
+  var st = ST.status();
+  console.log('PERSIST mode=' + st.mode + ' probe=' + st.probe + ' restored=' + st.restored);
   ST.recordGame(['권', null, null, null], 'A', [null, 'super2', 'super2', 'super2']);
   console.log('RECORDED');
   await ST.flush();

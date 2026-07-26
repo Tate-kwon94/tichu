@@ -103,6 +103,8 @@ async function main() {
     // 1·2) 빈 KV에서 시작 → 기록 → 플러시로 PUT
     var out1 = await runHarness(ENV, 'record');
     if (out1.indexOf('KV에 전적 없음') < 0) throw new Error('1) 404 경로 미확인:\n' + out1);
+    if (out1.indexOf('KV 쓰기 권한 확인 OK') < 0) throw new Error('1) 부팅 쓰기 점검 미실행:\n' + out1);
+    if (out1.indexOf('PERSIST mode=kv probe=write') < 0) throw new Error('1) status() 보고 이상:\n' + out1);
     if (!store['tichu:test']) throw new Error('2) 플러시가 KV에 쓰지 않음:\n' + out1);
     var saved = JSON.parse(store['tichu:test']);
     if (!saved['권'] || saved['권'].games !== 1) throw new Error('2) 저장 내용 이상: ' + store['tichu:test'].slice(0, 200));

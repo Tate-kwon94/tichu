@@ -148,7 +148,9 @@ function handle(req, res) {
   if (req.method === 'GET' && p === '/healthz') { res.writeHead(200, { 'Content-Type': 'text/plain' }); res.end('ok'); return; }
   if (req.method === 'GET' && p === '/stats') {   // 전적 — 닉네임 기반, 인증 없음(동료 내부용)
     var S = require('./stats.js');
-    var body = JSON.stringify(q.name ? { detail: S.detail(String(q.name).slice(0, 12)) } : { board: S.board(20) });
+    var body = JSON.stringify(q.name
+      ? { detail: S.detail(String(q.name).slice(0, 12)) }
+      : { board: S.board(20), persist: S.status() });   // persist: 영구저장 상태(운영 확인용)
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
     res.end(body);
     return;

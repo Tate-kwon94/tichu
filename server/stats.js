@@ -30,6 +30,9 @@ var kvPutting = false;
 var kvDirty = false;             // 파일과 별개 추적 — KV는 간격 제한이 있어 밀릴 수 있다
 var shuttingDown = false;        // 종료 플러시 후 쓰기 금지(신 인스턴스 데이터 덮어쓰기 방지)
 var hydrated = !KV.enabled();    // KV 미사용이면 동기 load()로 끝 → 처음부터 준비 완료
+var kvProbe = null;              // 부팅 점검 결과: read | write | readonly | error
+var kvRestored = 0;              // KV에서 복원한 인원
+var kvLastErr = null;
 var pending = [];                // 하이드레이션 전 도착한 기록(부팅 직후 수초) — 순서대로 재생
 var MAX_PENDING = 200;
 
@@ -109,11 +112,25 @@ async function hydrate() {
       if (raw && typeof raw === 'object') {
         Object.keys(stats).forEach(function (k) { delete stats[k]; });
         adopt(raw, 'KV');
+        kvRestored = Object.keys(stats).length;
       }
+      kvProbe = 'read';
     } else {
+      /* 키가 없으면 빈 값을 한 번 써 본다 — 첫 실행 초기화 겸 쓰기 권한 점검.
+       * 이게 없으면 토큰이 Read 전용이어도 부팅은 멀쩡히 되고, 몇 시간 뒤 첫 게임에서야
+       * 조용히 저장에 실패한다. 권한 문제는 배포 직후에 드러나야 한다. */
       console.log('[tichu] KV에 전적 없음 — 새로 시작');
+      try {
+        await KV.put(KV_KEY, '{}');
+        kvProbe = 'write';
+        console.log('[tichu] KV 쓰기 권한 확인 OK');
+      } catch (e2) {
+        kvProbe = 'readonly';
+        console.error('[tichu] KV 쓰기 실패 — 토큰 권한이 Edit인지 확인:', e2.message);
+      }
     }
   } catch (e) {
+    kvProbe = 'error';
     console.error('[tichu] KV 복원 실패 — 파일 상태로 계속:', e.message);
   } finally {
     hydrated = true;
@@ -142,7 +159,9 @@ async function saveKV(force) {
     await KV.put(KV_KEY, snapshot);
     kvLastPut = Date.now();
     kvDirty = false;
+    kvLastErr = null;
   } catch (e) {
+    kvLastErr = e.message;
     console.error('[tichu] KV 저장 실패(다음 기회에 재시도):', e.message);
   } finally { kvPutting = false; }
 }
@@ -304,6 +323,19 @@ function detail(name) {
   };
 }
 
+/* 저장 상태 — /stats에 함께 실어 보내 배포 직후 눈으로 확인할 수 있게 한다.
+ * (Render 로그를 열지 않고도 "영구저장이 켜졌나"를 밖에서 확인할 수 있어야 한다.) */
+function status() {
+  return {
+    mode: KV.enabled() ? 'kv' : 'file',
+    ready: hydrated,
+    probe: kvProbe,              // read=복원함 write=쓰기확인 readonly=권한부족 error=연결실패
+    restored: kvRestored,
+    players: Object.keys(stats).length,
+    lastError: kvLastErr
+  };
+}
+
 load();
 if (KV.enabled()) {
   console.log('[tichu] 전적 영구저장: Cloudflare KV (' + KV_KEY + ')');
@@ -315,5 +347,5 @@ if (KV.enabled()) {
 module.exports = {
   recordRound: recordRound, recordGame: recordGame,
   board: board, detail: detail,
-  save: save, flush: flush, BOT_ELO: BOT_ELO
+  save: save, flush: flush, status: status, BOT_ELO: BOT_ELO
 };
