@@ -19,6 +19,8 @@ var ROOT = path.join(__dirname, '..');
 var PORT = 18085;
 var store = Object.create(null);   // 가짜 KV
 var mode = 'ok';                   // 'ok' | 'fail' | 'slow'
+var putDelay = 0;                  // PUT 응답 지연(ms) — 종료와 겹치는 상황 재현
+var ghost404 = 0;                  // 남은 거짓말 횟수 — 결과적 일관성은 일시적이다(영구면 판별 불가)
 var putCount = 0;
 
 /* CF의 PUT 본문 파싱 — multipart면 value 파트를, 아니면 본문 전체를 값으로 본다. */
@@ -41,6 +43,12 @@ var kvServer = http.createServer(function (req, res) {
   if (req.method === 'GET') {
     if (mode === 'fail') { res.writeHead(500); res.end('boom'); return; }
     var send = function () {
+      if (ghost404 > 0 && key === 'tichu:test') {   // 존재하지만 없다고 답한다(횟수 소진)
+        ghost404--;
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end('{"success":false,"errors":[{"code":10009,"message":"get: \'key not found\'"}]}');
+        return;
+      }
       if (store[key] == null) {
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end('{"success":false,"errors":[{"code":10009,"message":"get: \'key not found\'"}]}');
@@ -58,10 +66,14 @@ var kvServer = http.createServer(function (req, res) {
     req.on('end', function () {
       if (mode === 'fail') { res.writeHead(500); res.end('boom'); return; }
       try {
-        store[key] = parseValue(Buffer.concat(chunks), req.headers['content-type']);
-        putCount++;
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end('{"success":true}');
+        var val = parseValue(Buffer.concat(chunks), req.headers['content-type']);
+        var finish = function () {
+          store[key] = val;
+          putCount++;
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end('{"success":true}');
+        };
+        if (putDelay) setTimeout(finish, putDelay); else finish();
       } catch (e) { res.writeHead(400); res.end(e.message); }
     });
     return;
@@ -110,6 +122,7 @@ async function main() {
     if (out1.indexOf('KV 쓰기 권한 확인 OK') < 0) throw new Error('1) 부팅 쓰기 점검 미실행:\n' + out1);
     if (out1.indexOf('PERSIST mode=kv probe=write') < 0) throw new Error('1) status() 보고 이상:\n' + out1);
     if (!store['tichu:test']) throw new Error('2) 플러시가 KV에 쓰지 않음:\n' + out1);
+    if (!store['tichu:test:probe']) throw new Error('1) 쓰기 점검이 전용 키를 안 씀:\n' + out1);
     var saved = JSON.parse(store['tichu:test']);
     if (!saved['권'] || saved['권'].games !== 1) throw new Error('2) 저장 내용 이상: ' + store['tichu:test'].slice(0, 200));
     console.log('1) 빈 KV(404) 시작 OK');
@@ -133,6 +146,43 @@ async function main() {
       throw new Error('4) 부팅 중 기록 유실 — games=' + (after['권'] && after['권'].games) + ' (기대 2)');
     }
     console.log('4) 하이드레이션 중 도착한 기록 보존 OK (누적 games=2)');
+
+    // 6) 유령 404(결과적 일관성) — 존재하는 데이터를 프로브·첫 저장이 날리지 않아야 한다
+    store['tichu:test'] = JSON.stringify({ '권': { games: 50, wins: 30, rounds: 200, pts: 500,
+      tichu: 0, tichuOk: 0, grand: 0, grandOk: 0, oneTwo: 0, partners: {}, elo: 1200,
+      eloPeak: 1200, eloDay: '', eloToday: 0, updated: 1 } });
+    ghost404 = 2;   // 하이드레이션의 최초 GET + 재시도까지만 속인다
+    try { fs.unlinkSync(dataFile); } catch (e) {}
+    var out6 = await runHarness(ENV, 'record');
+    ghost404 = 0;
+    var keep = JSON.parse(store['tichu:test']);
+    if (!keep['권'] || keep['권'].games < 50) {
+      throw new Error('6) 유령 404에 기존 전적 소실 — games=' + (keep['권'] && keep['권'].games) + '\n' + out6);
+    }
+    if (out6.indexOf('덮어쓰기 취소') < 0) throw new Error('6) 가드가 아니라 우연히 보존됨:\n' + out6);
+    console.log('6) 유령 404 → 덮어쓰기 취소·복원 OK (games=' + keep['권'].games + ' 보존)');
+
+    // 7) __proto__ 파트너 키가 프로토타입을 오염시키지 않아야 한다
+    store['tichu:test'] = JSON.stringify({ '권': { games: 1, wins: 1, rounds: 1, pts: 1,
+      tichu: 0, tichuOk: 0, grand: 0, grandOk: 0, oneTwo: 0,
+      partners: { '__proto__': { g: 1, w: 1 } }, elo: 1000, eloPeak: 1000,
+      eloDay: '', eloToday: 0, updated: 1 } });
+    try { fs.unlinkSync(dataFile); } catch (e) {}
+    var out7 = await runHarness(ENV, 'proto');
+    if (out7.indexOf('PROTO-CLEAN') < 0) throw new Error('7) 프로토타입 오염:\n' + out7);
+    console.log('7) __proto__ 파트너 키 무해화 OK');
+
+    // 8) 진행 중 PUT과 종료가 겹쳐도 마지막 기록이 남아야 한다
+    delete store['tichu:test'];
+    try { fs.unlinkSync(dataFile); } catch (e) {}
+    putDelay = 3000;
+    var out8 = await runHarness(ENV, 'overlap');
+    putDelay = 0;
+    var ov = JSON.parse(store['tichu:test'] || '{}');
+    if (!ov['권'] || ov['권'].games !== 2) {
+      throw new Error('8) 진행 중 PUT과 겹친 종료에서 유실 — games=' + (ov['권'] && ov['권'].games) + ' (기대 2)\n' + out8);
+    }
+    console.log('8) 진행 중 PUT + 종료 겹침에도 유실 없음 OK (games=2)');
 
     // 5) KV 장애여도 죽지 않고 파일로 계속
     mode = 'fail';

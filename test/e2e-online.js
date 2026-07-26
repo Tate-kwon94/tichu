@@ -135,7 +135,10 @@ function decide(client) {
 // ---------- 본체 ----------
 async function main() {
   var server = spawn(process.execPath, [path.join(__dirname, '..', 'server.js')], {
-    env: Object.assign({}, process.env, { PORT: String(PORT) }),
+    env: Object.assign({}, process.env, { PORT: String(PORT),
+      // 프로덕션 KV·실 전적 파일 격리 — 상속되면 테스트가 실데이터를 덮어쓴다
+      CF_ACCOUNT_ID: '', CF_KV_NAMESPACE_ID: '', CF_KV_TOKEN: '',
+      TICHU_STATS_FILE: require('path').join(require('os').tmpdir(), 'tichu-test-stats-' + PORT + '.json') }),
     stdio: ['ignore', 'pipe', 'pipe']
   });
   var serverLog = '';

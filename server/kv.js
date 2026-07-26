@@ -135,7 +135,7 @@ async function put(key, value) {
       var r = await fetch(url(key), { method: 'PUT', headers: headers, body: spec.body, signal: to.signal });
       if (r.ok) return true;
       lastErr = new Error('KV PUT ' + r.status + ' ' + (await r.text()).slice(0, 200));
-      if (r.status >= 500) throw lastErr;              // 서버 오류는 형식 문제가 아니므로 재시도 무의미
+      if (r.status >= 500) break;                      // 서버 오류는 형식 문제가 아니므로 형식 재시도 무의미
     } catch (e) {
       lastErr = e;
     } finally { if (to.clear) to.clear(); }

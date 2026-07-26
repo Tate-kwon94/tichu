@@ -148,9 +148,11 @@ function handle(req, res) {
   if (req.method === 'GET' && p === '/healthz') { res.writeHead(200, { 'Content-Type': 'text/plain' }); res.end('ok'); return; }
   if (req.method === 'GET' && p === '/stats') {   // 전적 — 닉네임 기반, 인증 없음(동료 내부용)
     var S = require('./stats.js');
+    // 자격증명 형태·오류 본문 같은 진단 세부는 비밀키를 아는 호출에만 (공개 엔드포인트)
+    var diagOk = !!(process.env.TICHU_DIAG && q.diag === process.env.TICHU_DIAG);
     var body = JSON.stringify(q.name
       ? { detail: S.detail(String(q.name).slice(0, 12)) }
-      : { board: S.board(20), persist: S.status() });   // persist: 영구저장 상태(운영 확인용)
+      : { board: S.board(20), persist: S.status(diagOk) });   // persist: 영구저장 상태(운영 확인용)
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
     res.end(body);
     return;

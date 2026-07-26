@@ -37,6 +37,11 @@ function recordStats(room, g) {
     return (p && !p.isBot) ? p.name : null;      // 봇은 집계 제외
   });
   if (!names.some(Boolean)) return;              // 전원 봇이면 기록할 것 없음
+  /* 같은 닉네임이 두 자리에 앉으면 한 사람으로 집계돼 승패·Elo가 이중 계산된다.
+   * (같은 판에서 이기고 지는 것도 가능해 수치가 무의미해진다.) 그 판은 통째로 건너뛴다. */
+  var seen = Object.create(null), dup = false;
+  names.forEach(function (n) { if (n) { if (seen[n]) dup = true; seen[n] = 1; } });
+  if (dup) { console.warn('[tichu] 같은 닉네임 중복 — 전적 집계 건너뜀', room.code); return; }
   // Elo용 봇 단수 — 봇 좌석은 고정 앵커로 쓰인다(방 전체가 같은 botLevel)
   var bots = [0, 1, 2, 3].map(function (s) {
     var p = room.seats[s];

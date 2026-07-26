@@ -42,7 +42,9 @@ function shutdown(sig) {
   if (closing) return;
   closing = true;
   console.log('[tichu] ' + sig + ' — 전적 저장 후 종료');
-  var hard = setTimeout(function () { process.exit(0); }, 6000);
+  /* KV 요청 타임아웃 8초 × 최대 2회 시도 = 16초. 안전망이 그보다 짧으면
+   * 느린 날에는 플러시가 자기 안전망에 잘려 마지막 게임이 유실된다. */
+  var hard = setTimeout(function () { process.exit(0); }, 20000);
   if (hard.unref) hard.unref();
   Promise.resolve(stats.flush())
     .catch(function (e) { console.error('[tichu] 종료 플러시 실패:', e && e.message); })

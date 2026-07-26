@@ -14,8 +14,10 @@ var fs = require('fs');
 var path = require('path');
 var KV = require('./kv.js');
 
-var FILE = path.join(__dirname, '..', 'data', 'stats.json');
+// 테스트가 실 전적 파일을 오염시키지 않도록 경로를 열어둔다(미지정 시 기존 경로)
+var FILE = process.env.TICHU_STATS_FILE || path.join(__dirname, '..', 'data', 'stats.json');
 var KV_KEY = process.env.CF_KV_KEY || 'tichu:stats:v1';
+var KV_PROBE_KEY = KV_KEY + ':probe';   // 권한 점검은 반드시 데이터 키 밖에서 (덮어쓰면 전량 소멸)
 var MAX_PLAYERS = 500;          // 닉네임 수 상한 — 메모리·파일 비대 방지
 var SAVE_DEBOUNCE_MS = 5000;
 /* KV 쓰기 최소 간격 — 무료 한도가 쓰기 1,000/일이라 병적인 루프에 대비한 안전판.
@@ -26,7 +28,10 @@ var stats = Object.create(null);  // 닉네임 → 집계
 var saveTimer = null;
 var dirty = false;
 var kvLastPut = 0;
-var kvPutting = false;
+var kvInflight = null;           // 진행 중인 PUT의 Promise — 종료 플러시가 이걸 기다려야 한다
+var kvVer = 0;                   // 변경 카운터 — 낡은 스냅샷으로 dirty를 지우지 않기 위해
+var kvCatchup = null;            // 간격 제한에 막힌 쓰기를 따라잡는 타이머
+var kvAssumedEmpty = false;      // 하이드레이션이 "키 없음"으로 결론냈다 → 첫 덮어쓰기 전에 재확인
 var kvDirty = false;             // 파일과 별개 추적 — KV는 간격 제한이 있어 밀릴 수 있다
 var shuttingDown = false;        // 종료 플러시 후 쓰기 금지(신 인스턴스 데이터 덮어쓰기 방지)
 var hydrated = !KV.enabled();    // KV 미사용이면 동기 load()로 끝 → 처음부터 준비 완료
@@ -86,7 +91,13 @@ function adopt(raw, where) {
     var s = raw[k];
     if (s && typeof s.games === 'number') {
       stats[k] = s;
-      s.partners = s.partners || Object.create(null);
+      /* JSON.parse가 만든 객체는 Object.prototype을 상속한다. 파트너 맵에 '__proto__' 같은
+       * 키가 섞이면 이후 대입이 프로토타입을 오염시켜 전혀 무관한 코드가 깨진다.
+       * 널 프로토타입으로 다시 지어 그 통로를 막는다. */
+      var pp = Object.create(null);
+      var src = s.partners || {};
+      Object.keys(src).forEach(function (pk) { pp[pk] = src[pk]; });
+      s.partners = pp;
       if (typeof s.elo !== 'number') { s.elo = ELO_START; s.eloPeak = ELO_START; s.eloDay = ''; s.eloToday = 0; }
       n++;
     }
@@ -108,6 +119,12 @@ function load() {
 async function hydrate() {
   try {
     var body = await KV.get(KV_KEY);
+    /* CF KV는 결과적 일관성이라 존재하는 키에도 일시적으로 "없음"이 올 수 있다.
+     * 없음을 그대로 믿으면 이후 첫 저장이 전량을 덮어쓴다 — 한 번 더 물어본다. */
+    if (body == null) {
+      await new Promise(function (r) { setTimeout(r, 800); });
+      body = await KV.get(KV_KEY);
+    }
     if (body) {
       var raw = JSON.parse(body);
       if (raw && typeof raw === 'object') {
@@ -121,8 +138,9 @@ async function hydrate() {
        * 이게 없으면 토큰이 Read 전용이어도 부팅은 멀쩡히 되고, 몇 시간 뒤 첫 게임에서야
        * 조용히 저장에 실패한다. 권한 문제는 배포 직후에 드러나야 한다. */
       console.log('[tichu] KV에 전적 없음 — 새로 시작');
+      kvAssumedEmpty = true;
       try {
-        await KV.put(KV_KEY, '{}');
+        await KV.put(KV_PROBE_KEY, String(Date.now()));   // 데이터 키는 절대 건드리지 않는다
         kvProbe = 'write';
         console.log('[tichu] KV 쓰기 권한 확인 OK');
       } catch (e2) {
@@ -158,22 +176,62 @@ function saveFile() {
   } catch (e) { console.error('[tichu] 전적 저장 실패', e.message); }
 }
 
-/* KV 기록. 간격 제한에 걸리면 kvDirty를 남겨 다음 저장 때 따라잡는다. */
+/* KV 기록.
+ * 세 가지를 지킨다:
+ *   ① 종료 플러시(force)는 진행 중 PUT을 기다렸다가 다시 쓴다 — 그냥 건너뛰면 조용히 유실된다.
+ *   ② dirty 해제는 "이 스냅샷 이후 변경이 없었을 때"만. PUT 왕복 중 들어온 기록을
+ *      저장된 것으로 처리하면 그 기록은 어디에도 안 남는다.
+ *   ③ 간격 제한에 막히면 따라잡기 타이머를 걸어, 세션 마지막 게임이 종료까지 미뤄지지 않게 한다. */
 async function saveKV(force) {
-  if (!KV.enabled() || !kvDirty || kvPutting || shuttingDown) return;
+  if (!KV.enabled() || !kvDirty || shuttingDown) return;
+  if (kvInflight) {
+    if (!force) return;                          // 평상시엔 다음 저장이 따라잡는다
+    try { await kvInflight; } catch (e) { /* 진행 중 실패는 아래에서 다시 쓴다 */ }
+    if (!kvDirty || shuttingDown) return;
+  }
   var wait = KV_MIN_INTERVAL_MS - (Date.now() - kvLastPut);
-  if (!force && wait > 0) return;
-  kvPutting = true;
-  var snapshot = JSON.stringify(stats);
-  try {
-    await KV.put(KV_KEY, snapshot);
-    kvLastPut = Date.now();
-    kvDirty = false;
-    kvLastErr = null;
-  } catch (e) {
-    kvLastErr = e.message;
-    console.error('[tichu] KV 저장 실패(다음 기회에 재시도):', e.message);
-  } finally { kvPutting = false; }
+  if (!force && wait > 0) {
+    if (!kvCatchup) {
+      kvCatchup = setTimeout(function () { kvCatchup = null; saveKV(false); }, wait + 100);
+      if (kvCatchup.unref) kvCatchup.unref();
+    }
+    return;
+  }
+  var snapVer = kvVer;
+  var p = (async function () {
+    try {
+      /* 하이드레이션이 "키 없음"으로 결론냈다면, 첫 덮어쓰기 직전에 한 번 더 확인한다.
+       * 그 결론이 일시적 404였다면 지금 원격에 남의 전적이 있고, 그대로 쓰면 전량 소멸한다. */
+      if (kvAssumedEmpty) {
+        var cur = null;
+        try { cur = await KV.get(KV_KEY); } catch (e0) { cur = null; }
+        if (cur && cur.trim() && cur.trim() !== '{}') {
+          console.error('[tichu] KV에 예상치 못한 기존 전적 발견 — 덮어쓰기 취소하고 복원한다');
+          try {
+            var raw2 = JSON.parse(cur);
+            if (raw2 && typeof raw2 === 'object') {
+              Object.keys(stats).forEach(function (k) { delete stats[k]; });
+              adopt(raw2, 'KV 복구');
+              kvRestored = Object.keys(stats).length;
+            }
+          } catch (e1) { /* 파싱 실패면 그냥 덮어쓰지 않는 것으로 충분 */ }
+          kvAssumedEmpty = false;
+          kvLastErr = '기존 전적 발견으로 덮어쓰기 취소(복원함)';
+          return;
+        }
+        kvAssumedEmpty = false;
+      }
+      await KV.put(KV_KEY, JSON.stringify(stats));
+      kvLastPut = Date.now();
+      if (kvVer === snapVer) kvDirty = false;    // 그 사이 변경이 있었으면 dirty 유지
+      kvLastErr = null;
+    } catch (e) {
+      kvLastErr = e.message;
+      console.error('[tichu] KV 저장 실패(다음 기회에 재시도):', e.message);
+    }
+  })();
+  kvInflight = p;
+  try { await p; } finally { if (kvInflight === p) kvInflight = null; }
 }
 
 function save() {
@@ -186,6 +244,7 @@ function save() {
 function scheduleSave() {
   dirty = true;
   kvDirty = true;
+  kvVer++;                      // 진행 중 PUT의 스냅샷을 낡은 것으로 표시
   if (saveTimer) return;
   saveTimer = setTimeout(save, SAVE_DEBOUNCE_MS);
   if (saveTimer.unref) saveTimer.unref();
@@ -195,6 +254,7 @@ function scheduleSave() {
  * 플러시 후 shuttingDown을 세워, 교체된 신 인스턴스의 데이터를 뒤늦게 덮어쓰지 않게 한다. */
 async function flush() {
   if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+  if (kvCatchup) { clearTimeout(kvCatchup); kvCatchup = null; }
   if (dirty) { dirty = false; saveFile(); }
   await saveKV(true);
   shuttingDown = true;
@@ -335,7 +395,7 @@ function detail(name) {
 
 /* 저장 상태 — /stats에 함께 실어 보내 배포 직후 눈으로 확인할 수 있게 한다.
  * (Render 로그를 열지 않고도 "영구저장이 켜졌나"를 밖에서 확인할 수 있어야 한다.) */
-function status() {
+function status(diagOk) {
   var st = {
     /* Render가 넣어주는 배포 커밋 — "새 코드가 실제로 떴는가"를 밖에서 확인하려면 필요하다.
      * 이게 없어서 방금 배포가 반영됐는지 아닌지로 한 번 헤맸다. */
@@ -345,9 +405,11 @@ function status() {
     probe: kvProbe,              // read=복원함 write=쓰기확인 readonly=권한부족 error=연결실패
     restored: kvRestored,
     players: Object.keys(stats).length,
-    lastError: kvLastErr
+    lastError: diagOk ? kvLastErr : (kvLastErr ? '있음(로그 확인)' : null)
   };
-  if (KV.enabled() && (kvProbe === 'error' || kvProbe === 'readonly')) {
+  /* 진단 세부(자격증명 길이·문자구성·CF 오류 본문)는 공개 엔드포인트에 실지 않는다.
+   * TICHU_DIAG와 일치하는 키를 준 호출에만 — 로그(console.error)에는 항상 남는다. */
+  if (KV.enabled() && (kvProbe === 'error' || kvProbe === 'readonly') && diagOk) {
     st.config = KV.shape();
     st.hint = kvHint;
   }
