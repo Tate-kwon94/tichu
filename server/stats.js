@@ -329,6 +329,9 @@ function detail(name) {
  * (Render 로그를 열지 않고도 "영구저장이 켜졌나"를 밖에서 확인할 수 있어야 한다.) */
 function status() {
   var st = {
+    /* Render가 넣어주는 배포 커밋 — "새 코드가 실제로 떴는가"를 밖에서 확인하려면 필요하다.
+     * 이게 없어서 방금 배포가 반영됐는지 아닌지로 한 번 헤맸다. */
+    rev: (process.env.RENDER_GIT_COMMIT || 'local').slice(0, 7),
     mode: KV.enabled() ? 'kv' : 'file',
     ready: hydrated,
     probe: kvProbe,              // read=복원함 write=쓰기확인 readonly=권한부족 error=연결실패

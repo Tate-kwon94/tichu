@@ -42,8 +42,27 @@ function enabled() { return !!(ACCOUNT && NS && TOKEN); }
 /* 설정 형태 점검 — 값 자체는 노출하지 않고 "모양"만 본다.
  * Cloudflare API 토큰은 40자 [A-Za-z0-9_-], 계정·네임스페이스 ID는 32자 16진수,
  * Global API Key는 37자 16진수(이건 Bearer로 못 쓴다 — 흔한 착각). */
+/* 값을 노출하지 않고 "어떤 종류의 문자열인가"만 요약한다.
+ * 길이만으로는 무엇을 잘못 붙여넣었는지 알 수 없어서(실제로 막혔다) 문자 구성을 본다. */
+function sig(v) {
+  if (!v) return 'empty';
+  var cls = [];
+  if (/^[0-9a-f]+$/i.test(v)) cls.push('16진수만');
+  if (/[A-Z]/.test(v) && /[a-z]/.test(v)) cls.push('대소문자혼합');
+  if (/[_-]/.test(v)) cls.push('_또는-');
+  if (/[.]/.test(v)) cls.push('점');
+  if (/[=]/.test(v)) cls.push('등호');
+  if (/[:]/.test(v)) cls.push('콜론');
+  if (/\s/.test(v)) cls.push('공백포함');
+  if (/[^\x21-\x7e]/.test(v)) cls.push('비ASCII');
+  return (cls.join('·') || '기타') + ' / 앞2=' + v.slice(0, 2);
+}
+
 function shape() {
-  var out = { accountLen: ACCOUNT.length, nsLen: NS.length, tokenLen: TOKEN.length, warn: [] };
+  var out = {
+    accountLen: ACCOUNT.length, nsLen: NS.length, tokenLen: TOKEN.length,
+    tokenSig: sig(TOKEN), warn: []
+  };
   if (ACCOUNT && !/^[0-9a-f]{32}$/i.test(ACCOUNT)) out.warn.push('계정 ID 형식이 32자 16진수가 아님');
   if (NS && !/^[0-9a-f]{32}$/i.test(NS)) out.warn.push('네임스페이스 ID 형식이 32자 16진수가 아님');
   if (TOKEN && /^[0-9a-f]{37}$/i.test(TOKEN)) out.warn.push('Global API Key로 보임 — API 토큰(40자)을 발급해야 함');
