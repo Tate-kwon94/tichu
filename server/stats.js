@@ -33,6 +33,7 @@ var hydrated = !KV.enabled();    // KV 미사용이면 동기 load()로 끝 → 
 var kvProbe = null;              // 부팅 점검 결과: read | write | readonly | error
 var kvRestored = 0;              // KV에서 복원한 인원
 var kvLastErr = null;
+var kvHint = null;             // 401/403일 때 토큰 검증으로 얻은 원인 갈래
 var pending = [];                // 하이드레이션 전 도착한 기록(부팅 직후 수초) — 순서대로 재생
 var MAX_PENDING = 200;
 
@@ -134,6 +135,13 @@ async function hydrate() {
     kvProbe = 'error';
     kvLastErr = e.message;      // 밖에서 보여야 진단이 된다(/stats의 persist.lastError)
     console.error('[tichu] KV 복원 실패 — 파일 상태로 계속:', e.message);
+    if (/40[13]/.test(e.message)) {
+      try {
+        var v = await KV.verifyToken();
+        kvHint = v.why;
+        console.error('[tichu] 토큰 검증: ' + (v.ok ? '유효' : '무효') + ' — ' + v.why);
+      } catch (e3) { /* 진단 실패는 무시 */ }
+    }
   } finally {
     hydrated = true;
     var q = pending; pending = [];
@@ -339,7 +347,10 @@ function status() {
     players: Object.keys(stats).length,
     lastError: kvLastErr
   };
-  if (KV.enabled() && (kvProbe === 'error' || kvProbe === 'readonly')) st.config = KV.shape();
+  if (KV.enabled() && (kvProbe === 'error' || kvProbe === 'readonly')) {
+    st.config = KV.shape();
+    st.hint = kvHint;
+  }
   return st;
 }
 

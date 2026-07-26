@@ -65,8 +65,8 @@ function shape() {
   };
   if (ACCOUNT && !/^[0-9a-f]{32}$/i.test(ACCOUNT)) out.warn.push('계정 ID 형식이 32자 16진수가 아님');
   if (NS && !/^[0-9a-f]{32}$/i.test(NS)) out.warn.push('네임스페이스 ID 형식이 32자 16진수가 아님');
-  if (TOKEN && /^[0-9a-f]{37}$/i.test(TOKEN)) out.warn.push('Global API Key로 보임 — API 토큰(40자)을 발급해야 함');
-  else if (TOKEN && TOKEN.length !== 40) out.warn.push('토큰 길이가 40자가 아님(' + TOKEN.length + '자) — 잘려 붙었을 수 있음');
+  if (TOKEN && /^[0-9a-f]{37}$/i.test(TOKEN)) out.warn.push('Global API Key로 보임 — API 토큰을 발급해야 함');
+  else if (TOKEN && TOKEN.length < 30) out.warn.push('토큰이 너무 짧음(' + TOKEN.length + '자) — 잘려 붙었을 수 있음');
   if (ACCOUNT && NS && ACCOUNT === NS) out.warn.push('계정 ID와 네임스페이스 ID가 같음 — 같은 값을 두 칸에 넣었을 수 있음');
   return out;
 }
@@ -143,4 +143,23 @@ async function put(key, value) {
   throw lastErr || new Error('KV PUT 실패');
 }
 
-module.exports = { enabled: enabled, get: get, put: put, shape: shape };
+/* 토큰 자체가 유효한지를 Cloudflare에 직접 묻는다(/user/tokens/verify).
+ * 401을 받았을 때 "토큰 문자열이 틀림"과 "토큰은 맞는데 이 계정/권한이 아님"은
+ * 고치는 방법이 완전히 달라서, 추측 대신 이걸로 갈라야 한다. */
+async function verifyToken() {
+  if (!TOKEN) return { ok: false, why: '토큰 없음' };
+  var to = withTimeout(TIMEOUT_MS);
+  try {
+    var r = await fetch(BASE + '/user/tokens/verify', {
+      headers: { Authorization: 'Bearer ' + TOKEN },
+      signal: to.signal
+    });
+    var t = (await r.text()).slice(0, 300);
+    if (r.ok) return { ok: true, why: '토큰 유효 — 권한 범위(Workers KV Storage:Edit)나 계정 ID를 확인' };
+    return { ok: false, why: '토큰 자체가 거부됨(' + r.status + ') — 값을 다시 복사하거나 재발급: ' + t };
+  } catch (e) {
+    return { ok: false, why: '검증 호출 실패: ' + e.message };
+  } finally { if (to.clear) to.clear(); }
+}
+
+module.exports = { enabled: enabled, get: get, put: put, shape: shape, verifyToken: verifyToken };
