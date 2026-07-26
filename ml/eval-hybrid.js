@@ -7,6 +7,7 @@ var path = require('path');
 var C = require(path.join(__dirname, '..', 'shared', 'tichu-core.js'));
 var B = require(path.join(__dirname, '..', 'shared', 'bots.js'));
 var HY = require(path.join(__dirname, 'hybrid-bot.js'));
+var EG = require(path.join(__dirname, 'endgame.js'));
 
 var wPath = process.argv[2];
 var oppLevel = process.argv[3] || 'hard';
@@ -120,6 +121,12 @@ function hyDecide(g, seat, hist) {
     }
   }
   if (g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
+    // 종반 완전탐색 모듈(3단 후보) — 전원 손패 소량이면 결정화 K세계 정확풀이 다수결로 교체
+    if (hasCand('endgame') && EG.maxHand(g) <= (+process.env.TICHU_EG_CAP || 4)) {
+      var em = EG.endgameMove(g, seat, { K: +process.env.TICHU_EG_K || 12,
+        nodeCap: +process.env.TICHU_EG_NODECAP || 6000 });   // 6000 = 12세계 최악 ~0.5s, 예산 내
+      if (em) return em;
+    }
     var opts = { budgetMs: hyMs, temp: hyTemp, c: (+process.argv[10] || 1.5),
       holdValue: hasCand('holdValue'), oppRead: hasCand('oppRead'),   // ②③
       oracle: ORACLE, oracleMix: ORACLE_MIX,                          // ④

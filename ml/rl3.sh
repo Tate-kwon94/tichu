@@ -3,6 +3,7 @@
 # 사용: zsh ml/rl3.sh [최대세대=6]
 # 재시작 안전: ml/data/rl3/state 에 세대 저장, 세대별 가중치 보존.
 set -e
+setopt NULL_GLOB 2>/dev/null || true   # zsh: 매치 없는 glob이 에러가 되어 set -e로 죽는 것 방지
 cd "$(dirname "$0")/.."
 ML=ml; RL=$ML/data/rl3
 mkdir -p "$RL"
@@ -52,9 +53,9 @@ while [ "$GEN" -lt "$MAXGEN" ]; do
   # 트립와이어: 이 세대 정책 vs 동결 2단, raw 그리디 짝지음 점수차 (>0이면 개선).
   # 8샤드×500딜 = 4000딜로 SE↓. 정지는 부호가 아니라 신뢰구간 기반(오발동 방지):
   # (평균 + 2·SE) < 0 이어야 "유의하게 나빠짐" — 노이즈로는 안 걸림.
-  echo "$(date '+%H:%M:%S') === gen $GEN: 트립와이어 (4000딜) ===" >> "$RL/loop.log"
+  echo "$(date '+%H:%M:%S') === gen $GEN: 트립와이어 (1600딜) ===" >> "$RL/loop.log"
   for i in 0 1 2 3 4 5 6 7; do
-    $NODE $ML/eval-raw.js "$RL/cur.json" "$FROZEN" 500 $((7000000 + i * 500)) "$DECL" \
+    $NODE $ML/eval-raw.js "$RL/cur.json" "$FROZEN" 200 $((7000000 + i * 500)) "$DECL" \
       > "$RL/trip${GEN}_$i.tmp" 2>/dev/null &
   done
   wait

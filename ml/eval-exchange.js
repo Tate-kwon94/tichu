@@ -52,6 +52,28 @@ var STRATS = {
     var opp = h.indexOf('DG') >= 0 ? ['DG', n[0]] : n.slice(0, 2);
     return mkGive(s, opp, normalsAsc(h, opp).pop());
   },
+  /* 사용자 전술(2026-07-26 인터뷰): "내가 티츄 가능한 패면 좋은 것은 내가 갖고 있는다.
+   * 패가 너무 안 좋으면 그냥 제일 좋은 걸 줘버린다." — 조건부 교환. 기존 12변형은 전부
+   * 무조건이었고 이 조건부는 미측정. 티츄 판정은 하네스 생태계와 동일한 botTichu 휴리스틱. */
+  keep_tichuCond: function (g, s) {
+    var h = C.sortHand(g.hands[s]), n = normalsAsc(h), opp = n.slice(0, 2);
+    var rest = normalsAsc(h, opp);
+    if (B.botTichu && B.botTichu(h)) {
+      // 티츄 의향 → 강카드는 내가 쥐고 파트너에겐 중간(하위 1/3 위쪽)
+      var mid = rest[Math.floor(rest.length * 0.4)] || rest[0];
+      return mkGive(s, opp, mid);
+    }
+    return mkGive(s, opp, rest[rest.length - 1]);   // 평소엔 최고 카드(현행 keep)
+  },
+  // 변형: 티츄 의향이면 차선(2등) — 덜 극단적
+  keep_tichuCond2: function (g, s) {
+    var h = C.sortHand(g.hands[s]), n = normalsAsc(h), opp = n.slice(0, 2);
+    var rest = normalsAsc(h, opp);
+    if (B.botTichu && B.botTichu(h) && rest.length >= 2) {
+      return mkGive(s, opp, rest[rest.length - 2]);
+    }
+    return mkGive(s, opp, rest[rest.length - 1]);
+  },
   // 파트너에게 A 대신 "짝을 못 이루는 외톨이 최고카드". A가 페어면 내 조합으로 쥐고 외톨이 K를 준다.
   keep_solo_hi: function (g, s) {
     var h = C.sortHand(g.hands[s]), n = normalsAsc(h), cnt = {};
