@@ -106,7 +106,11 @@ function hyDecide(g, seat, hist) {
   if (decl && g.phase === 'grand' && !g.grandAnswered[seat]) {
     return { type: 'call_grand', seat: seat, call: decl.grand(g.hands[seat], ctx) };
   }
-  if (g.phase === 'play' && g.turnSeat === seat && !g.playedFirst[seat] &&
+  // lateTichu(3단 후보, 사용자 피드백): 선언을 첫 '차례'가 아니라 첫 '플레이' 직전으로 미룬다.
+  // 패스하는 차례에 선언하면 상대에게 저지 준비 시간만 공짜로 준다(선언 간접비용의 원천).
+  // 반대급부: 파트너도 늦게 안다(보호·조율 지연) — 순효과는 게이트가 판정.
+  if (!hasCand('lateTichu') &&
+      g.phase === 'play' && g.turnSeat === seat && !g.playedFirst[seat] &&
       !g.tichu[seat] && g.finished.indexOf(seat) < 0) {
     // ⑥ 롤아웃 선언 — 켜져 있으면 선언망 임계값 대신 "먼저 나갈 확률"을 세어본다
     if (hasCand('rollTichu')) {
@@ -145,6 +149,11 @@ function hyDecide(g, seat, hist) {
     if (hasCand('guardTichu')) act = B.guardPartnerTichu(g, seat, act);
     // 3단 후보: 봉황 싱글 가드 — 용 미소진·무대응 상태의 봉황 싱글을 억제(사용자 피드백)
     if (hasCand('phxGuard')) act = B.guardPhoenixSingle(g, seat, act);
+    // lateTichu: 지금 실제로 카드를 내려는 순간에만 선언 — 선언 후 같은 좌석이 다시 행동한다
+    if (hasCand('lateTichu') && act && act.type === 'play_cards' &&
+        !g.playedFirst[seat] && !g.tichu[seat] && decl && decl.tichu(g.hands[seat], ctx)) {
+      return { type: 'call_tichu', seat: seat };
+    }
     return act;
   }
   // ⑦ 교환: 마작·개를 상대에게 넘기지 않는다 (2단 후보). 상대측(고정 1단)은 기존 그대로.
