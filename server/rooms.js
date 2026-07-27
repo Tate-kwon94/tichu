@@ -454,7 +454,7 @@ function handle(player, a) {
       if (!code) return ackOf(a, null, err('RATE_LIMITED', '방 코드를 만들 수 없습니다'));
       if (a.name) player.name = sanitizeName(a.name);
       var r = {
-        code: code, version: 0, gver: 0, game: null, hostSeat: 0,
+        code: code, version: 0, gver: 0, game: null, hostSeat: 0, joinCounter: 0,
         seats: [player, null, null, null],
         createdAt: now(), lastActivity: now(),
         botTimer: null, botSeat: null, botDeadline: null,
@@ -527,6 +527,7 @@ function handle(player, a) {
       r2.seats[free] = player;
       player.roomCode = code2;
       player.seat = free;
+      player.joinSeq = ++r2.joinCounter;      // 자리 배정 '순서대로'용 참가 순번
       r2.lastActivity = now();
       broadcast(r2);
       return ackOf(a, r2, null);
@@ -542,6 +543,32 @@ function handle(player, a) {
       player.name = sanitizeName(a.name);
       broadcast(room);
       return ackOf(a, room, null);
+
+    case 'arrange_seats': {
+      // 팀 배정: 'order'(참가 순서) | 'random'(무작위). 마주 보는 자리가 한 팀이므로
+      // 좌석 배열만 바꾸면 팀이 정해진다. 대기실에서 방장만.
+      if (!isHost) return ackOf(a, room, err('NOT_HOST', '방장만 바꿀 수 있습니다'));
+      if (room.game) return ackOf(a, room, err('BAD_PHASE', '게임 중에는 바꿀 수 없습니다'));
+      var occ = room.seats.filter(Boolean);
+      if (occ.length < 2) return ackOf(a, room, err('BAD_REQUEST', '사람이 부족합니다'));
+      var hostPlayer = room.seats[room.hostSeat];   // 방장은 자리를 따라간다(좌석 번호가 아니라 사람)
+      if (a.mode === 'random') {
+        for (var ri = occ.length - 1; ri > 0; ri--) {           // Fisher-Yates
+          var rj = crypto.randomInt(ri + 1), tmp = occ[ri]; occ[ri] = occ[rj]; occ[rj] = tmp;
+        }
+      } else {
+        // 참가 순서 — 순번 없는 사람(방장·복귀자)은 0으로 보아 앞에 온다
+        occ.sort(function (x, y) { return (x.joinSeq || 0) - (y.joinSeq || 0); });
+      }
+      room.seats = [null, null, null, null];
+      occ.forEach(function (p2, idx) { room.seats[idx] = p2; p2.seat = idx; });
+      var hi = room.seats.indexOf(hostPlayer);
+      if (hi >= 0) room.hostSeat = hi;
+      fixHost(room);
+      room.lastActivity = now();
+      broadcast(room);
+      return ackOf(a, room, null);
+    }
 
     case 'take_seat': {
       if (room.game) return ackOf(a, room, err('BAD_PHASE', '게임 중에는 이동할 수 없습니다'));
@@ -663,6 +690,26 @@ function handle(player, a) {
       break;
     case 'pass_turn': engineAction = { type: 'pass_turn', seat: player.seat }; break;
     case 'give_dragon': engineAction = { type: 'give_dragon', seat: player.seat, toSeat: a.toSeat | 0 }; break;
+    case 'to_lobby': {
+      // 한 판이 끝나면 대기실로 — 자리·팀을 다시 정하고 새로 시작할 수 있게 한다
+      var hostP0 = room.seats[room.hostSeat];
+      if (!(isHost || !isConn(hostP0))) return ackOf(a, room, err('NOT_HOST', '방장이 진행합니다'));
+      if (!room.game || (room.game.phase !== 'gameEnd' && room.game.phase !== 'roundEnd')) {
+        return ackOf(a, room, err('BAD_PHASE', '게임이 끝난 뒤에만 돌아갈 수 있습니다'));
+      }
+      clearBotTimer(room);
+      room.game = null;
+      room.playHist = [];
+      room.lastSummary = null;
+      // 봇 좌석은 비운다 — 대기실에서 사람이 앉거나 방장이 다시 추가한다
+      for (var bi = 0; bi < 4; bi++) if (room.seats[bi] && room.seats[bi].isBot) room.seats[bi] = null;
+      fixHost(room);
+      room.gver++;
+      room.lastActivity = now();
+      broadcast(room);
+      return ackOf(a, room, null);
+    }
+
     case 'next_round':
     case 'restart_game': {
       var hostP = room.seats[room.hostSeat];

@@ -48,6 +48,8 @@
 | `pass_turn` | `version` | 선두/소원 이행 가능 시 거부 |
 | `give_dragon` | `toSeat` | 용 트릭 승자가 상대팀 좌석 지정 |
 | `next_round` / `restart_game` | — | 방장(끊겨 있으면 아무 사람) |
+| `arrange_seats` | `mode`('order'|'random') | 방장·대기실 전용. 좌석을 참가 순서대로 정렬하거나 무작위로 섞는다(마주 보는 자리 = 한 팀이므로 팀 배정과 같다). 방장 권한은 사람을 따라감 |
+| `to_lobby` | — | 게임 종료(또는 라운드 종료) 후 대기실 복귀. 봇 좌석은 비우고 사람은 유지 |
 | `chat` | `text`(≤200자) | 방 전체에 브로드캐스트. 제어문자 제거, 0.6초 레이트리밋. 게임 version은 올리지 않음 |
 
 **version 규칙**: `pass_turn`은 버전 게이트 없음 — 엔진(_pass)이 차례·선두·소원을 재검증(정당한 패스가 버전 지연으로 거부되던 버그 해결). `play_cards`는 version 불일치 시 `STALE_VERSION`, 단 폭탄(bomb4/bombstraight)은 현재 상태 기준으로 재검증 통과.

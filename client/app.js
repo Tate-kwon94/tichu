@@ -776,6 +776,12 @@ function renderLobby() {
     '<div class="seatGrid">' + seats + '</div>' +
     '<div class="lobbyHint">' + STR.teamHint + '</div>' +
     (isHost()
+      ? '<div class="targetRow"><span class="targetLbl">' + STR.teamsLbl + '</span>' +
+          '<button class="btn small ghost" data-act="arrange" data-mode="order">' + STR.teamsOrder + '</button>' +
+          '<button class="btn small ghost" data-act="arrange" data-mode="random">' + STR.teamsRandom + '</button>' +
+        '</div><div class="botHint">' + STR.teamsHint + '</div>'
+      : '') +
+    (isHost()
       ? targetPicker() + botLevelPicker(false) + '<button class="btn primary" data-act="start">' + STR.start + ' (빈자리는 봇)</button>'
       : '<div class="lobbyHint">' + STR.waitingHost + '</div>') +
   '</div>';
@@ -1064,8 +1070,12 @@ function summaryModal(g) {
   var hsi = state.snap.roomSeats[state.snap.hostSeat];
   var canAdvance = isHost() || (hsi && !hsi.connected);
   if (g.phase === 'gameEnd') {
-    html += canAdvance ? '<button class="btn primary" style="width:100%" data-act="restart">' + STR.newGame + '</button>'
-                       : '<div class="desc">' + STR.hostWillContinue + '</div>';
+    html += canAdvance
+      ? '<div class="row">' +
+          '<button class="btn primary grow" data-act="restart">' + STR.newGame + '</button>' +
+          (state.snap.mode !== 'offline' ? '<button class="btn ghost grow" data-act="to-lobby">' + STR.toLobby + '</button>' : '') +
+        '</div>'
+      : '<div class="desc">' + STR.hostWillContinue + '</div>';
   } else {
     html += canAdvance ? '<button class="btn primary" style="width:100%" data-act="next-round">' + STR.nextRound + '</button>'
                        : '<div class="desc">' + STR.hostWillContinue + '</div>';
@@ -1428,6 +1438,8 @@ function onClick(e) {
     }
     case 'next-round': send({ type: 'next_round' }); break;
     case 'restart': send({ type: 'restart_game' }); break;
+    case 'to-lobby': send({ type: 'to_lobby' }); break;
+    case 'arrange': send({ type: 'arrange_seats', mode: t.getAttribute('data-mode') }); break;
     case 'stats-open': openStats(); break;
     case 'stats-close': state.statsOpen = false; render(); break;
     case 'help-open': state.help = true; state.helpFromModal = false; render(); break;

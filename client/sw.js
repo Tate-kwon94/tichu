@@ -1,5 +1,5 @@
 /* 서비스워커 — 정적 자산 캐시(오프라인 혼자 연습), 네트워크 우선(업데이트 안전) */
-var VERSION = 'tichu-v26';
+var VERSION = 'tichu-v27';
 var ASSETS = [
   './',
   'index.html',
