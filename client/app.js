@@ -805,9 +805,11 @@ function renderTable() {
     '<button class="btn small ghost" data-act="leave">' + STR.leave + '</button>' +
   '</div>';
 
-  // 상대 패널 (왼쪽 / 파트너 / 오른쪽)
+  /* 상대 패널 — 화면 왼쪽부터 [내 왼쪽(rel3) · 파트너(rel2) · 내 오른쪽(rel1)].
+   * 진행은 반시계(공식 규칙) = 다음 차례가 내 오른쪽이므로 rel1이 화면 오른쪽이어야 한다.
+   * (좌석+1을 화면 왼쪽에 두면 화면상 시계 방향으로 보인다 — 예전 배치의 오류) */
   html += '<div class="opps">';
-  [1, 2, 3].forEach(function (rel) {
+  [3, 2, 1].forEach(function (rel) {
     var s = relSeat(rel);
     var rs = snap.roomSeats[s], si = seatInfo(s);
     var cls = 'opp' + (rel === 2 ? ' partner' : '') + (g.turnSeat === s && g.phase === 'play' ? ' turn' : '');
@@ -944,12 +946,13 @@ function renderMeArea() {
   // 액션 영역
   if (exMode) {
     html += '<div class="exRow">';
-    for (var i = 0; i < 3; i++) {
+    // 화면 배치와 일치시킨다: 왼쪽 슬롯 = 내 왼쪽 사람(rel3 = 슬롯2)
+    [2, 1, 0].forEach(function (i) {
       var id2 = state.exch[i];
       html += '<div class="exSlot' + (id2 ? ' filled' : '') + '" data-act="ex-slot" data-i="' + i + '">' +
         '<span class="who">' + esc(exTargetName(i)) + '</span>' +
         (id2 ? '<span>' + esc(C.cardName(id2)) + '</span>' : '<span style="opacity:.5">카드 선택</span>') + '</div>';
-    }
+    });
     html += '</div>';
     html += '<div class="actions">' +
       (you.canCallTichu ? tichuBtnHtml() : '') +
@@ -985,7 +988,8 @@ function tichuBtnHtml() {
     : '<button class="btn ghost" data-act="tichu">' + STR.tichuBtn + '</button>';
 }
 function exTargetName(slot) {
-  var labels = ['왼쪽', '파트너', '오른쪽'];
+  // 슬롯 = rel(1,2,3). 반시계 진행이라 rel1 = 내 오른쪽(다음 차례), rel3 = 내 왼쪽.
+  var labels = ['오른쪽', '파트너', '왼쪽'];
   return labels[slot] + ' · ' + seatName(relSeat(slot + 1));
 }
 
@@ -1216,7 +1220,7 @@ function helpModal() {
     '<b>게임 흐름</b><br>' +
     '① 처음 8장을 보고 라지 티츄 여부 결정(보통 「선언 안 함」).<br>' +
     '② 나머지 6장을 받고, 양옆·파트너에게 1장씩 <b>교환</b>(파트너에겐 좋은 카드, 상대에겐 낮은 카드).<br>' +
-    '③ <b>반시계 방향</b>(내 왼쪽이 다음 차례)으로 돌아가며 카드를 냄. <b>이전 사람보다 높게</b> 내거나 <b>패스</b>. 나머지 3명이 모두 패스하면 마지막에 낸 사람이 깔린 카드를 전부 가져가고 새 턴을 시작.<br>' +
+    '③ <b>반시계 방향</b>(내 오른쪽이 다음 차례)으로 돌아가며 카드를 냄. <b>이전 사람보다 높게</b> 내거나 <b>패스</b>. 나머지 3명이 모두 패스하면 마지막에 낸 사람이 깔린 카드를 전부 가져가고 새 턴을 시작.<br>' +
     '④ 손패를 먼저 비우는 순서대로 1~4등. 같은 팀이 1·2등이면 즉시 라운드 종료(원투).<br><br>' +
     '<b>규칙 상세</b><br>' +
     '· 2:2 팀전. 마주 보는 자리가 한 팀, 1000점(또는 방장이 정한 점수) 선취. 진행은 반시계 방향.<br>' +

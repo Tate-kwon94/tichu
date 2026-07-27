@@ -114,7 +114,8 @@ function botTichu(hand14) { return tichuScore(hand14) >= thresh('tichu', 8); }
 // 상대(좌/우)에게 최저 카드 + 마작/개 떠넘기기, 파트너에게 가장 강한 카드(용/불사조는 보유)
 function botExchange(game, seat, opts) {
   var hand = sortHand(game.hands[seat]); // 오름차순
-  var left = (seat + 1) % 4, right = (seat + 3) % 4, partner = partnerOf(seat);
+  // 반시계 진행: 좌석+1 = 내 오른쪽(다음 차례), 좌석+3 = 내 왼쪽. 둘 다 상대라 급여 규칙은 동일.
+  var right = (seat + 1) % 4, left = (seat + 3) % 4, partner = partnerOf(seat);
   var give = {}, used = {};
   // 상대 둘: 마작(선 강제 떠넘기기)·개 우선, 그다음 최저 일반 카드
   //
