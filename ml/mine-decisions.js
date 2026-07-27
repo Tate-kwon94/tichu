@@ -74,6 +74,32 @@ function oracleEval(g, seat, rngSeed) {
   return { acts: acts, evs: evs, best: best };
 }
 
+/* 홀드아웃 격차: 특정 두 액션(오라클 선택 vs PUCT 선택)을 신선한 B세계에서 재평가.
+ * 선택에 쓴 세계로 격차를 재면 승자의 저주(+~5점)가 섞인다 — B세계 격차가 무편향. */
+function holdoutGap(g, seat, aOracle, aPuct, rngSeed) {
+  var team = seat % 2, sO = 0, sP = 0, ok = 0;
+  for (var w = 0; w < W; w++) {
+    globalThis.__TICHU_RNG = mulberry(rngSeed + 500000 + w * 104729);
+    var det = B.determinize(g, seat);
+    var vv = [];
+    [aOracle, aPuct].forEach(function (act) {
+      var sim = det.clone();
+      if (!sim.apply(act).ok) { vv.push(null); return; }
+      var guard = 0;
+      while (sim.phase !== 'roundEnd' && sim.phase !== 'gameEnd' && ++guard < 2000) {
+        var ww = sim.waitingOn(); if (!ww.length) break;
+        var aa = B.botDecide(sim, ww[0], 'normal'); if (!aa || !sim.apply(aa).ok) break;
+      }
+      if (!sim.roundSummary) { vv.push(null); return; }
+      var d = sim.roundSummary.deltas;
+      vv.push(team === 0 ? d.teamA - d.teamB : d.teamB - d.teamA);
+    });
+    if (vv[0] != null && vv[1] != null) { sO += vv[0]; sP += vv[1]; ok++; }
+  }
+  delete globalThis.__TICHU_RNG;
+  return ok ? +((sO - sP) / ok).toFixed(2) : null;
+}
+
 function classify(g, seat, chosen) {
   var n = g.hands[seat].length;
   var opp1 = (seat + 1) % 4, opp2 = (seat + 3) % 4, pt = (seat + 2) % 4;
@@ -119,10 +145,12 @@ for (var gi = 0; gi < NGAMES; gi++) {
             var ok2 = actKey(oc.acts[oc.best]);
             var pIdx = -1;
             for (var ai = 0; ai < oc.acts.length; ai++) if (actKey(oc.acts[ai]) === pk) { pIdx = ai; break; }
-            var gap = (pIdx >= 0 && isFinite(oc.evs[pIdx])) ? +(oc.evs[oc.best] - oc.evs[pIdx]).toFixed(2) : null;
             var agree = pk === ok2;
             if (!agree) nDis++;
-            console.log(JSON.stringify({ agree: agree ? 1 : 0, gap: agree ? 0 : gap, cls: classify(g, 0, pk) }));
+            // 격차는 홀드아웃(신선 B세계)으로 — 선택 잡음 제거된 무편향 추정
+            var gap = 0;
+            if (!agree && pIdx >= 0) gap = holdoutGap(g, 0, oc.acts[oc.best], oc.acts[pIdx], seed * 100000 + nDec * 131);
+            console.log(JSON.stringify({ agree: agree ? 1 : 0, gap: gap, cls: classify(g, 0, pk) }));
           }
         }
       }
