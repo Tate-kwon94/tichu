@@ -1,0 +1,56 @@
+name: labels
+# 교환 오라클 라벨 분산 생성 — 정밀 라벨(세계 2,000개)로 MLP의 라벨 잡음 천장을 올린다.
+# 로컬 3시간(600세계) → CI ~40분(2,000세계). 결과는 아티팩트 jsonl.
+
+on:
+  workflow_dispatch:
+    inputs:
+      labels:
+        description: '라벨 수'
+        default: '10000'
+      worlds:
+        description: '라벨당 세계 수 (정밀도 — SE ∝ 1/√worlds)'
+        default: '2000'
+      seed_start:
+        description: '시드 시작'
+        default: '2000000'
+      ecology_exw:
+        description: '다른 좌석 교환 가중치(3단 생태계) — 빈 값이면 2단(keepSpecials)'
+        default: 'ml/weights-exchange-linear.json'
+
+jobs:
+  shard:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+    steps:
+      - uses: actions/checkout@v4
+      - name: generate labels
+        env:
+          SHARD: ${{ matrix.shard }}
+          TOTAL_SHARDS: '20'
+          LABELS: ${{ inputs.labels }}
+          WORLDS: ${{ inputs.worlds }}
+          SEED_START: ${{ inputs.seed_start }}
+          ECOLOGY_EXW: ${{ inputs.ecology_exw }}
+        run: bash ml/run-labels-shard.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: labels-${{ matrix.shard }}
+          path: ci-labels/
+          if-no-files-found: ignore
+
+  count:
+    needs: shard
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: ci-labels
+          merge-multiple: true
+      - run: |
+          echo "### 라벨 생성 합계" >> "$GITHUB_STEP_SUMMARY"
+          wc -l ci-labels/*.jsonl | tail -1 >> "$GITHUB_STEP_SUMMARY"
