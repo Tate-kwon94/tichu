@@ -54,7 +54,7 @@ var STRATS = {
       if (!EF) {
         EF = require(path.join(__dirname, 'exchange-feats.js'));
         W = JSON.parse(require('fs').readFileSync(
-          process.env.TICHU_EXW || path.join(__dirname, 'data', 'exchange-linear.json'), 'utf8')).w;
+          process.env.TICHU_EXW || path.join(__dirname, 'weights-exchange-linear.json'), 'utf8')).w;
       }
       var cands = EF.candidates(g.hands[s]);
       if (cands.length < 2) return STRATS.keep(g, s);

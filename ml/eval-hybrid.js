@@ -86,6 +86,7 @@ if (oppLevel.indexOf('hy:') === 0) {
 
 // 2단 후보 프로파일 — 주(main) 봇에만 켜지는 ①②③ 개선 (상대=동결 1단은 미적용).
 // 사용: TICHU_CAND=declAdjust,holdValue,oppRead node eval-hybrid.js ...
+var EXF = null, EXW = null;   // 학습 교환 지연 로드
 var CAND = (process.env.TICHU_CAND || '').split(',').filter(Boolean);
 if (CAND.indexOf('wishCount') >= 0) globalThis.__TICHU_WISH_COUNT = 1; // 카운팅 소원(주봇 탐색 경로 전체)
 function hasCand(f) { return CAND.indexOf(f) >= 0; }
@@ -159,6 +160,28 @@ function hyDecide(g, seat, hist) {
   // ⑦ 교환: 마작·개를 상대에게 넘기지 않는다 (2단 후보). 상대측(고정 1단)은 기존 그대로.
   // exchTriple/exchSF(3단 후보): 랭크 3장+ / 스티플 잠재(같은 무늬 5랭크 창 4장+) 보존 — 사용자 피드백
   if (hasCand('exchange') && g.phase === 'exchange' && !g.exchangeGive[seat]) {
+    // learnExch(3단 후보): 학습 교환 — 특징×가중치 argmax (단계1 게이트 +2.18±0.75 통과)
+    if (hasCand('learnExch')) {
+      if (!EXF) {
+        EXF = require(path.join(__dirname, 'exchange-feats.js'));
+        EXW = JSON.parse(require('fs').readFileSync(
+          process.env.TICHU_EXW || path.join(__dirname, 'weights-exchange-linear.json'), 'utf8')).w;
+      }
+      var exC = EXF.candidates(g.hands[seat]);
+      if (exC.length >= 2) {
+        var exBest = 0, exBestV = -1e9;
+        for (var exI = 0; exI < exC.length; exI++) {
+          var exX = EXF.features(g.hands[seat], exC[exI]), exV = 0;
+          for (var exJ = 0; exJ < exX.length; exJ++) exV += exX[exJ] * EXW[exJ];
+          if (exV > exBestV) { exBestV = exV; exBest = exI; }
+        }
+        var exGive = {};
+        exGive[(seat + 1) % 4] = exC[exBest].o[0];
+        exGive[(seat + 3) % 4] = exC[exBest].o[1];
+        exGive[C.partnerOf(seat)] = exC[exBest].p;
+        return { type: 'submit_exchange', seat: seat, give: exGive };
+      }
+    }
     return {
       type: 'submit_exchange', seat: seat,
       give: B.botExchange(g, seat, {

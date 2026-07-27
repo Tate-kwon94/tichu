@@ -6,5 +6,7 @@ npm-debug.log*
 ml/.venv/
 ml/*.pt
 ml/*.json
+# 학습 교환 선형 가중치 — 게이트 통과 산출물은 추적
+!ml/weights-exchange-linear.json
 ml/*.jsonl
 ml/data/
