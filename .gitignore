@@ -8,5 +8,7 @@ ml/*.pt
 ml/*.json
 # 학습 교환 선형 가중치 — 게이트 통과 산출물은 추적
 !ml/weights-exchange-*.json
+# 4단 RL 후보(승단전용) — CI 러너가 체크아웃해 쓴다
+!ml/weights-rl4-*.json
 ml/*.jsonl
 ml/data/
