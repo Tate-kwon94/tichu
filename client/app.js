@@ -740,6 +740,17 @@ function renderLobby() {
       (s === snap.hostSeat && rs.occupied && !rs.isBot ? ' <span class="chip gold">' + STR.host + '</span>' : '') +
       (me ? ' <span class="chip gold">' + STR.you + '</span>' : '') + '</div>';
     inner += '<div class="tag">' + (C.teamOf(s) === C.teamOf(mySeat()) ? STR.myTeam : STR.oppTeam) + ' 팀 · 좌석 ' + (s + 1) + '</div>';
+    // 전적·Elo — 사람 좌석만 (서버가 없거나 기록 없으면 생략/첫 게임)
+    if (rs.occupied && !rs.isBot) {
+      var st = rs.stats;
+      var tierKo = { bronze: '브론즈', silver: '실버', gold: '골드', diamond: '다이아' };
+      inner += '<div class="tag lobStats">' + (st
+        ? 'Elo <b class="stTier ' + esc(st.tier) + '">' + st.elo + '</b> ' + (tierKo[st.tier] || '') +
+          (st.provisional ? '<span style="opacity:.55">?</span>' : '') +
+          ' · ' + st.games + '전 ' + st.wins + '승' +
+          (st.games ? ' (' + Math.round(100 * st.wins / st.games) + '%)' : '')
+        : '<span style="opacity:.5">첫 게임</span>') + '</div>';
+    }
     var btns = '<div class="row" style="margin-top:auto">';
     if (!rs.occupied) {
       btns += '<button class="btn small" data-act="sit" data-seat="' + s + '">' + STR.sit + '</button>';

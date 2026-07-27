@@ -374,6 +374,13 @@ function board(limit) {
     .slice(0, limit || 20);
 }
 
+/* 로비 표기용 경량 조회 — 없으면 null(첫 게임). detail()과 달리 파트너 목록 등 무거운 것 제외 */
+function brief(name) {
+  var s = stats[name];
+  if (!s) return null;
+  return { elo: Math.round(s.elo), tier: tierOf(s.elo), games: s.games, wins: s.wins, provisional: s.games < 10 };
+}
+
 // 개인 상세 — 파트너 궁합 포함
 function detail(name) {
   var s = stats[name];
@@ -426,6 +433,6 @@ if (KV.enabled()) {
 
 module.exports = {
   recordRound: recordRound, recordGame: recordGame,
-  board: board, detail: detail,
+  board: board, detail: detail, brief: brief,
   save: save, flush: flush, status: status, BOT_ELO: BOT_ELO
 };

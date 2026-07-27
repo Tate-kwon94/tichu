@@ -142,7 +142,9 @@ function snapshotFor(room, seat) {
         name: p ? p.name : '',
         isBot: !!(p && p.isBot),
         connected: isConn(p),
-        occupied: !!p
+        occupied: !!p,
+        // 로비 전적 표기 — 사람 좌석만, 기록 없으면 null(첫 게임)
+        stats: (p && !p.isBot) ? STATS.brief(p.name) : null
       };
     }),
     game: room.game ? room.game.viewFor(seat) : null,
