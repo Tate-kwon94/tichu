@@ -1,0 +1,73 @@
+name: measure
+# 승단전·게이트 측정을 20러너로 분산 — 로컬 하룻밤(7h)을 ~1시간으로.
+# 수동 실행 전용(workflow_dispatch). 결과는 merge 잡의 Summary에 사전등록 판정과 함께 출력.
+# 주의: 러너 CPU는 로컬 M2와 작동점이 다르다(perDecision 확인) — 비교의 양팔은 같은 기계군에서.
+
+on:
+  workflow_dispatch:
+    inputs:
+      cand:
+        description: '후보 프로파일 (TICHU_CAND)'
+        default: 'exchange,learnExch'
+      opp_cand:
+        description: '상대 프로파일 (TICHU_OPP_CAND)'
+        default: 'exchange'
+      main_weights:
+        description: '후보 가중치'
+        default: 'shared/weights-super3.json'
+      opp_weights:
+        description: '상대 가중치'
+        default: 'shared/weights-super.json'
+      seed_start:
+        description: '시작 시드'
+        default: '20001'
+      pairs:
+        description: '시드(쌍) 수 — 게임은 ×2'
+        default: '480'
+      budget:
+        description: '결정당 예산 ms'
+        default: '950'
+      bar:
+        description: '판정 기준 점수차'
+        default: '4.17'
+
+jobs:
+  shard:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+    steps:
+      - uses: actions/checkout@v4
+      - name: run shard
+        env:
+          SHARD: ${{ matrix.shard }}
+          TOTAL_SHARDS: '20'
+          PAIRS: ${{ inputs.pairs }}
+          SEED_START: ${{ inputs.seed_start }}
+          CAND: ${{ inputs.cand }}
+          OPP_CAND: ${{ inputs.opp_cand }}
+          MAIN_WEIGHTS: ${{ inputs.main_weights }}
+          OPP_WEIGHTS: ${{ inputs.opp_weights }}
+          BUDGET: ${{ inputs.budget }}
+        run: bash ml/run-shard.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ matrix.shard }}
+          path: ci-logs/
+          if-no-files-found: ignore
+
+  merge:
+    needs: shard
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: ci-logs
+          merge-multiple: true
+      - name: merge and judge
+        run: |
+          python3 ml/merge-pairs.py 'ci-logs/*.log' '${{ inputs.bar }}' | tee -a "$GITHUB_STEP_SUMMARY"

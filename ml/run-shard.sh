@@ -1,0 +1,39 @@
+#!/bin/bash
+# CI 러너용 승단전 샤드 — 전체 시드를 TOTAL_SHARDS로 나눠 이 샤드 몫을 PROCS 병렬로 실행.
+# 러너 vCPU만큼 프로세스를 띄우되, 한 게임의 양측은 같은 프로세스라 공정성은 유지된다.
+# 환경: SHARD TOTAL_SHARDS PAIRS SEED_START CAND OPP_CAND MAIN_WEIGHTS OPP_WEIGHTS BUDGET [PROCS]
+set -u
+SHARD=${SHARD:?}
+TOTAL=${TOTAL_SHARDS:-20}
+PAIRS=${PAIRS:-480}
+SEED0=${SEED_START:-20001}
+CAND=${CAND:-exchange}
+OPPC=${OPP_CAND:-exchange}
+WMAIN=${MAIN_WEIGHTS:-shared/weights-super3.json}
+WOPP=${OPP_WEIGHTS:-shared/weights-super.json}
+BUDGET=${BUDGET:-950}
+PROCS=${PROCS:-$(nproc)}
+mkdir -p ci-logs
+
+PER=$(( (PAIRS + TOTAL - 1) / TOTAL ))
+MY0=$(( SEED0 + SHARD * PER ))
+END=$(( SEED0 + PAIRS - 1 ))
+MYN=$PER
+LAST=$(( MY0 + MYN - 1 ))
+if [ "$LAST" -gt "$END" ]; then MYN=$(( END - MY0 + 1 )); fi
+if [ "$MYN" -le 0 ]; then echo "shard=$SHARD 몫 없음"; exit 0; fi
+
+echo "shard=$SHARD seeds=$MY0..$((MY0 + MYN - 1)) procs=$PROCS nproc=$(nproc)"
+SUB=$(( (MYN + PROCS - 1) / PROCS ))
+MYEND=$(( MY0 + MYN - 1 ))
+for p in $(seq 0 $((PROCS - 1))); do
+  S=$(( MY0 + p * SUB ))
+  if [ "$S" -gt "$MYEND" ]; then continue; fi
+  E=$(( S + SUB - 1 ))
+  if [ "$E" -gt "$MYEND" ]; then E=$MYEND; fi
+  TICHU_CAND="$CAND" TICHU_OPP_CAND="$OPPC" \
+  node ml/eval-hybrid.js "$WMAIN" "pu:$WOPP:1.0" "$S" "$E" "$BUDGET" "$BUDGET" puct 1 1.0 \
+    > "ci-logs/out_${SHARD}_${p}.log" 2>&1 &
+done
+wait
+grep -h "perDecision\|RESULT" ci-logs/out_${SHARD}_*.log || true
