@@ -47,24 +47,21 @@ var STRATS = {
   // 2×2 분해 — 개는 양날이다: 보유하면 "선을 잡아야만 싱글로 낼 수 있는" 부담이지만,
   // 파트너에게 선을 넘겨 원투 완주(1·2등 보너스)를 만드는 도구이기도 하다.
   // 상대에게 주면 부담을 떠넘기는 동시에 그 도구도 넘긴다. 어느 쪽이 큰지는 재야 안다.
-  // 학습 교환(단계1 킬게이트): exchange-feats 특징 × 선형 가중치 argmax
+  // 학습 교환 — 선형(3단 동결) / MLP(4단 후보). 추론은 exchange-infer 공용
   learned: (function () {
-    var EF = null, W = null;
+    var M = null;
     return function (g, s) {
-      if (!EF) {
-        EF = require(path.join(__dirname, 'exchange-feats.js'));
-        W = JSON.parse(require('fs').readFileSync(
-          process.env.TICHU_EXW || path.join(__dirname, 'weights-exchange-linear.json'), 'utf8')).w;
-      }
-      var cands = EF.candidates(g.hands[s]);
-      if (cands.length < 2) return STRATS.keep(g, s);
-      var best = 0, bestV = -1e9;
-      for (var ci = 0; ci < cands.length; ci++) {
-        var x = EF.features(g.hands[s], cands[ci]), v = 0;
-        for (var j = 0; j < x.length; j++) v += x[j] * W[j];
-        if (v > bestV) { bestV = v; best = ci; }
-      }
-      return mkGive(s, cands[best].o, cands[best].p);
+      if (!M) M = require(path.join(__dirname, 'exchange-infer.js')).load(
+        process.env.TICHU_EXW || path.join(__dirname, 'weights-exchange-linear.json'));
+      return M.give(g, s) || STRATS.keep(g, s);
+    };
+  })(),
+  learnedMlp: (function () {
+    var M = null;
+    return function (g, s) {
+      if (!M) M = require(path.join(__dirname, 'exchange-infer.js')).load(
+        process.env.TICHU_EXW2 || path.join(__dirname, 'weights-exchange-mlp.json'));
+      return M.give(g, s) || STRATS.keep(g, s);
     };
   })(),
   // 보존 교환(3단 후보, 사용자 피드백): 폭탄 잠재 카드는 상대에게 주지 않는다

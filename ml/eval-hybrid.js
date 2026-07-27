@@ -86,7 +86,7 @@ if (oppLevel.indexOf('hy:') === 0) {
 
 // 2단 후보 프로파일 — 주(main) 봇에만 켜지는 ①②③ 개선 (상대=동결 1단은 미적용).
 // 사용: TICHU_CAND=declAdjust,holdValue,oppRead node eval-hybrid.js ...
-var EXF = null, EXW = null;   // 학습 교환 지연 로드
+var EXF = null, EXW = null, EXM2 = null;   // 학습 교환 지연 로드(선형/MLP)
 /* 학습 교환 선택기 — 주봇(3단 후보)과 상대(동결 3단 기준선)가 공유한다 */
 function learnedGive(g, seat) {
   if (!EXF) {
@@ -182,6 +182,13 @@ function hyDecide(g, seat, hist) {
   // exchTriple/exchSF(3단 후보): 랭크 3장+ / 스티플 잠재(같은 무늬 5랭크 창 4장+) 보존 — 사용자 피드백
   if (hasCand('exchange') && g.phase === 'exchange' && !g.exchangeGive[seat]) {
     // learnExch(3단): 학습 교환 — 특징×가중치 argmax (단계1 게이트 +2.18±0.75 통과)
+    // learnExch = 선형(3단 동결 구성) / learnExch2 = MLP(4단 후보 — 3단엔 미적용, 사용자 지시)
+    if (hasCand('learnExch2')) {
+      if (!EXM2) EXM2 = require(path.join(__dirname, 'exchange-infer.js')).load(
+        process.env.TICHU_EXW2 || path.join(__dirname, 'weights-exchange-mlp.json'));
+      var lg2 = EXM2.give(g, seat);
+      if (lg2) return { type: 'submit_exchange', seat: seat, give: lg2 };
+    }
     if (hasCand('learnExch')) {
       var lg = learnedGive(g, seat);
       if (lg) return { type: 'submit_exchange', seat: seat, give: lg };
