@@ -8,6 +8,15 @@
 }(typeof self !== 'undefined' ? self : this, function (C) {
 'use strict';
 
+/* CRN(공통난수): 측정 하네스가 globalThis.__TICHU_RNG에 시드된 난수원을 꽂으면
+ * 결정화·플레이 확률 전부가 그걸 쓴다 — A/B 두 팔이 같은 세계 흐름을 공유해
+ * 짝지음 분산이 줄고, 같은 설정 재실행이 비트 단위로 재현된다.
+ * 미설정 시 Math.random 그대로 = 프로덕션 무영향. */
+function RND() {
+  return (typeof globalThis !== 'undefined' && globalThis.__TICHU_RNG)
+    ? globalThis.__TICHU_RNG() : Math.random();
+}
+
 var genMoves = C.genMoves, isSpecial = C.isSpecial, isBomb = C.isBomb,
     rankOf = C.rankOf, sumPoints = C.sumPoints, partnerOf = C.partnerOf,
     teamOf = C.teamOf, sortHand = C.sortHand, makeDeck = C.makeDeck;
@@ -324,12 +333,12 @@ function botPlayEasy(game, seat) {
     var pool = sorted.filter(function (m) { return !isBomb(m.combo.type); });
     if (!pool.length) pool = sorted;
     pool = pool.slice(0, Math.max(1, Math.ceil(pool.length / 2)));
-    return pool[Math.floor(Math.random() * pool.length)];
+    return pool[Math.floor(RND() * pool.length)];
   }
-  if (Math.random() < 0.3) return null; // 이길 수 있어도 종종 패스
+  if (RND() < 0.3) return null; // 이길 수 있어도 종종 패스
   var nonBomb = sorted.filter(function (m) { return !isBomb(m.combo.type); });
   var pool2 = (nonBomb.length ? nonBomb : sorted).slice(0, 3);
-  return pool2[Math.floor(Math.random() * pool2.length)];
+  return pool2[Math.floor(RND() * pool2.length)];
 }
 
 // ---------- 탐색(몬테카를로) — 고수/악마 난이도 ----------
@@ -349,7 +358,7 @@ function determinize(game, seat, constraints) {
     others.push(s);
     var hnd = g.hands[s];
     for (var hi = 0; hi < hnd.length; hi++) {
-      if (pinFrac && Math.random() < pinFrac) (pinned[s] = pinned[s] || []).push(hnd[hi]);
+      if (pinFrac && RND() < pinFrac) (pinned[s] = pinned[s] || []).push(hnd[hi]);
       else pool.push(hnd[hi]);
     }
   }
@@ -362,7 +371,7 @@ function determinize(game, seat, constraints) {
       if (pi >= 0) { pool.splice(pi, 1); (pinned[to] = pinned[to] || []).push(card); }
     }
   }
-  for (var i = pool.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = pool[i]; pool[i] = pool[j]; pool[j] = t; }
+  for (var i = pool.length - 1; i > 0; i--) { var j = Math.floor(RND() * (i + 1)); var t = pool[i]; pool[i] = pool[j]; pool[j] = t; }
   var k = 0;
   for (var o = 0; o < others.length; o++) {
     var os = others[o], pin = pinned[os] || [];
@@ -379,7 +388,7 @@ function determinize(game, seat, constraints) {
       for (var ci = 0; ci < hand.length; ci++) {
         var id = hand[ci];
         if (isSpecial(id) || rankOf(id) <= r) continue; // 위반(R초과 싱글)만
-        if (Math.random() < 0.25) continue;             // 소프트: 25%는 전략적 보유로 남겨둠
+        if (RND() < 0.25) continue;             // 소프트: 25%는 전략적 보유로 남겨둠
         // 제약 없는(또는 이 카드 허용) 다른 좌석 y의 카드와 스왑
         for (var yi = 0; yi < others.length; yi++) {
           var y = others[yi]; if (y === x) continue;

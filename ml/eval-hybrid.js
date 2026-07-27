@@ -271,10 +271,13 @@ function playGame(seed, hyTeamA) {
   return g.winnerTeam === (hyTeamA ? 'A' : 'B');
 }
 
+function mulberry(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; var t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+var CRN = process.env.TICHU_CRN === '1';   // 공통난수 — 딜·진영별 시드 고정(설정 간 비교용)
 var wins = 0, games = 0, t0 = Date.now(), PAIRS = [];
 for (var seed = seedStart; seed <= seedEnd; seed++) {
   var pp = [];
   [true, false].forEach(function (side) {
+    if (CRN) globalThis.__TICHU_RNG = mulberry(seed * 2 + (side ? 0 : 1) + 777000000);
     try {
       games++;
       var p0 = GPTS, r0 = GROUNDS;

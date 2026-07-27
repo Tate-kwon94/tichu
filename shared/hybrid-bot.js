@@ -11,6 +11,10 @@
   }
 }(typeof self !== 'undefined' ? self : this, function (C, B, NET) {
 'use strict';
+function RND() {
+  return (typeof globalThis !== 'undefined' && globalThis.__TICHU_RNG)
+    ? globalThis.__TICHU_RNG() : Math.random();
+}
 
 function create(netOrPath) {
   var net = (typeof netOrPath === 'string') ? NET.load(netOrPath)
@@ -300,7 +304,7 @@ function create(netOrPath) {
         var sim = det.clone ? det.clone() : B.cloneGame(det);
         var h2 = hist.slice();
         if (applyCand(sim, seat, cands[best], h2)) {
-          var v = (oracle && (!oracleMix || Math.random() >= oracleMix))
+          var v = (oracle && (!oracleMix || RND() >= oracleMix))
             ? oracleEval(sim, seat, oracle)
             : (opts && opts.playout === 'neural')
               ? Math.max(-2, Math.min(2, neuralPlayout(sim, seat, h2, deadline) / 100))
