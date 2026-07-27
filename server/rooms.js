@@ -17,8 +17,9 @@ function getSuperBot() {
   }
   return superBot;
 }
-// 3단 봇 — swa13_18(RL 체크포인트 평균) 가중치 + 종반 완전탐색 + 티츄 가드 + 트리플 보존 교환.
-// 승단전(960게임 사전등록)을 통과한 조합 그대로만 배선한다 — 측정 안 된 재료는 싣지 않는다.
+// 3단 봇 — 승단전(CI 1,920게임 사전등록, +6.16±1.46 = 54.4%)을 통과한 동결 조합 그대로:
+// swa13_18(RL 체크포인트 평균) 가중치 + 손패별 학습 교환(선형). 그 외 재료는 싣지 않는다
+// (종반탐색·티츄가드·트리플보존은 측정에서 무효/음수 — 4단 이상 재료로만).
 var super3Bot = null;
 function getSuper3Bot() {
   if (!super3Bot) {
@@ -28,7 +29,16 @@ function getSuper3Bot() {
   }
   return super3Bot;
 }
-var EG = require(path.join(__dirname, '..', 'shared', 'endgame.js'));
+var exch3 = null;                                   // 3단 학습 교환(선형) — 지연 로드
+function getExch3() {
+  if (!exch3) {
+    var INF = require(path.join(__dirname, '..', 'shared', 'exchange-infer.js'));
+    var w = JSON.parse(require('fs').readFileSync(
+      path.join(__dirname, '..', 'shared', 'weights-exchange3.json'), 'utf8'));
+    exch3 = INF.create(w);
+  }
+  return exch3;
+}
 // 선언(티츄/라지) 신경망 — 66만 라운드 학습, EV 보정 임계
 var declNet = null;
 function getDeclare() {
@@ -274,14 +284,12 @@ function botAct(room, seat) {
   } else if (room.botLevel === 'super2' && g.phase === 'exchange' && !g.exchangeGive[seat]) {
     a = { type: 'submit_exchange', seat: seat, give: B.botExchange(g, seat, { keepSpecials: true }) }; // ⑦ 2단 전용
   } else if (isDan3 && g.phase === 'exchange' && !g.exchangeGive[seat]) {
-    // 3단 교환: 2단(⑦) + 트리플 보존(같은 랭크 3장+는 폭탄 잠재라 안 나눔 — 게이트 +1.25±0.31)
-    a = { type: 'submit_exchange', seat: seat, give: B.botExchange(g, seat, { keepSpecials: true, keepTriples: true }) };
+    // 3단 교환: 손패별 학습 교환(선형) — 게이트 +2.18±0.75, 후보 부족 시 2단 규칙 폴백
+    a = { type: 'submit_exchange', seat: seat,
+          give: getExch3().give(g, seat) || B.botExchange(g, seat, { keepSpecials: true }) };
   } else if (isDan3 && g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
-    // 3단 플레이: 종반(전원 손패 ≤4) 완전탐색 다수결 → 아니면 PUCT → 파트너 티츄 가드
-    a = null;
-    if (EG.maxHand(g) <= 4) a = EG.endgameMove(g, seat, { K: 12, nodeCap: 6000 });
-    if (!a) a = getSuper3Bot().decidePuct(g, seat, room.playHist || [], { budgetMs: 950, c: 1.0 });
-    a = B.guardPartnerTichu(g, seat, a);
+    // 3단 플레이: swa 가중치 PUCT (승단전 통과 조합 그대로 — 추가 모듈 없음)
+    a = getSuper3Bot().decidePuct(g, seat, room.playHist || [], { budgetMs: 950, c: 1.0 });
   } else if (isSuper && g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
     a = getSuperBot().decidePuct(g, seat, room.playHist || [], { budgetMs: 950, c: 1.0 });
     // 파트너 티츄 가드(B.guardPartnerTichu)는 사용자 결정으로 2단에 미적용 — 3단 전용 재료

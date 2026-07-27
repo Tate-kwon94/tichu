@@ -5,7 +5,7 @@ var OfflineSession = (function () {
 var SAVE_KEY = 'tichu.solo';
 var NAMES = ['나', '레오', '미나', '준'];
 
-function create(handlers, resume, botLevel, superHy, declNet) {
+function create(handlers, resume, botLevel, superHy, declNet, exchNet) {
   var C = TichuCore, B = TichuBots;
   botLevel = ['easy', 'normal', 'hard', 'devil', 'super', 'super2', 'super3'].indexOf(botLevel) >= 0 ? botLevel : 'normal';
   if ((botLevel === 'super' || botLevel === 'super2' || botLevel === 'super3') && !superHy) botLevel = 'hard'; // 가중치 미로드 시 안전 폴백
@@ -75,16 +75,12 @@ function create(handlers, resume, botLevel, superHy, declNet) {
       } else if (botLevel === 'super2' && game.phase === 'exchange' && !game.exchangeGive[s]) {
         a = { type: 'submit_exchange', seat: s, give: B.botExchange(game, s, { keepSpecials: true }) }; // ⑦ 2단 전용
       } else if (isDan3 && game.phase === 'exchange' && !game.exchangeGive[s]) {
-        // 3단 교환: ⑦ + 트리플 보존(게이트 +1.25±0.31)
-        a = { type: 'submit_exchange', seat: s, give: B.botExchange(game, s, { keepSpecials: true, keepTriples: true }) };
+        // 3단 교환: 손패별 학습 교환(선형, 게이트 +2.18±0.75) — 미로드·후보부족 시 2단 규칙
+        var lg3 = exchNet ? exchNet.give(game, s) : null;
+        a = { type: 'submit_exchange', seat: s, give: lg3 || B.botExchange(game, s, { keepSpecials: true }) };
       } else if (isDan3 && game.phase === 'play' && game.turnSeat === s && game.finished.indexOf(s) < 0) {
-        // 3단: 종반 완전탐색 → PUCT → 파트너 티츄 가드 (승단전 통과 조합 그대로)
-        a = null;
-        if (typeof TichuEndgame !== 'undefined' && TichuEndgame.maxHand(game) <= 4) {
-          a = TichuEndgame.endgameMove(game, s, { K: 12, nodeCap: 6000 });
-        }
-        if (!a) a = superHy.decidePuct(game, s, hist, { budgetMs: 900, c: 1.0 });
-        a = B.guardPartnerTichu(game, s, a);
+        // 3단 플레이: swa 가중치 PUCT (승단전 통과 조합 그대로 — 추가 모듈 없음)
+        a = superHy.decidePuct(game, s, hist, { budgetMs: 900, c: 1.0 });
       } else if (isSuper && game.phase === 'play' && game.turnSeat === s && game.finished.indexOf(s) < 0) {
         a = superHy.decidePuct(game, s, hist, { budgetMs: 900, c: 1.0 });
       } else {

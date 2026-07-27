@@ -359,6 +359,7 @@ function ensureOnline(cb) {
 }
 var superHyCaches = {};    // 단별 신경망 캐시 — 1·2단은 v6, 3단은 swa 가중치(별도 파일 ~8MB)
 var declNetCache = null;   // 선언 신경망(~130KB)
+var exch3Cache = null;     // 3단 학습 교환 가중치(수 KB)
 function startSolo(resume) {
   destroySession();
   if (!resume) OfflineSession.clearSave();
@@ -366,20 +367,24 @@ function startSolo(resume) {
     var danKey = state.botLevel;
     var danNum = danKey === 'super3' ? '3단' : danKey === 'super2' ? '2단' : '1단';
     var wFile = danKey === 'super3' ? 'shared/weights-super3.json' : 'shared/weights-super.json';
-    if (superHyCaches[wFile]) {
-      state.session = OfflineSession.create(handlers, resume, danKey, superHyCaches[wFile], declNetCache);
+    if (superHyCaches[wFile] && (danKey !== 'super3' || exch3Cache)) {
+      state.session = OfflineSession.create(handlers, resume, danKey, superHyCaches[wFile], declNetCache, exch3Cache);
       state.conn = { s: '', mode: 'offline' };
       return;
     }
     toast(danNum + ' 봇 준비 중…', { ms: 4000 });
     Promise.all([
       fetch(wFile).then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.json(); }),
-      fetch('shared/weights-declare.json').then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; })
+      fetch('shared/weights-declare.json').then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; }),
+      danKey === 'super3'
+        ? fetch('shared/weights-exchange3.json?v=' + (window.__ASSET_V || '')).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; })
+        : Promise.resolve(null)
     ])
       .then(function (ws) {
         superHyCaches[wFile] = TichuHybrid.create(TichuNet.create(ws[0]));
         if (ws[1]) declNetCache = TichuDeclare.create(ws[1]);
-        state.session = OfflineSession.create(handlers, resume, danKey, superHyCaches[wFile], declNetCache);
+        if (ws[2]) exch3Cache = TichuExchangeInfer.create(ws[2]);
+        state.session = OfflineSession.create(handlers, resume, danKey, superHyCaches[wFile], declNetCache, exch3Cache);
         state.conn = { s: '', mode: 'offline' };
       })
       .catch(function () {
