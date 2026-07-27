@@ -138,6 +138,38 @@ function handlePoll(req, res, query) {
   rooms.attachPoll(token, since, respond);
 }
 
+/* 기보 — 전적(/stats)과 같은 위협 모델: 동료 내부용, 무인증.
+ * 라운드가 끝난 손패는 이미 공개 정보라 노출해도 게임에 영향이 없다.
+ *   /gamelog/status  수집 확인(버퍼 수·현재 키·KV 키 목록)
+ *   /gamelog/recent  이번 부팅의 최근 기보 (JSONL) — 다시보기·수거용
+ *   /gamelog/get?key= 과거 부팅 키의 기보 (JSONL, tichu:gamelog: 접두사만 허용) */
+function handleGamelog(req, res, p, q) {
+  var G = require('./gamelog.js');
+  var KV = require('./kv.js');
+  function json(code, obj) { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); }
+  function text(code, s) { res.writeHead(code, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(s); }
+  if (p === '/gamelog/status') {
+    var st = G.status();
+    Promise.resolve(KV.enabled() ? KV.list('tichu:gamelog:') : null)
+      .then(function (keys) { json(200, { buffered: st.buffered, key: st.key, kv: { enabled: KV.enabled(), keys: keys } }); })
+      .catch(function (e) { json(200, { buffered: st.buffered, key: st.key, kv: { enabled: KV.enabled(), error: String(e && e.message).slice(0, 200) } }); });
+    return;
+  }
+  if (p === '/gamelog/recent') {
+    text(200, G.recent(+q.n || 50).map(function (r) { return JSON.stringify(r); }).join('\n'));
+    return;
+  }
+  if (p === '/gamelog/get') {
+    var key = String(q.key || '');
+    if (key.indexOf('tichu:gamelog:') !== 0) { json(400, { error: 'tichu:gamelog: 키만 조회 가능' }); return; }
+    Promise.resolve(KV.get(key))
+      .then(function (v) { if (v == null) json(404, { error: '키 없음' }); else text(200, v); })
+      .catch(function (e) { json(502, { error: String(e && e.message).slice(0, 200) }); });
+    return;
+  }
+  json(404, { error: '알 수 없는 기보 경로' });
+}
+
 // ---------- 라우터 ----------
 function handle(req, res) {
   var u;
@@ -157,6 +189,7 @@ function handle(req, res) {
     res.end(body);
     return;
   }
+  if (req.method === 'GET' && p.indexOf('/gamelog/') === 0) { handleGamelog(req, res, p, q); return; }
   if (req.method === 'POST' && p === '/action') { handleAction(req, res); return; }
   if (req.method === 'GET' && p === '/events') { handleEvents(req, res, q); return; }
   if (req.method === 'GET' && p === '/poll') { handlePoll(req, res, q); return; }

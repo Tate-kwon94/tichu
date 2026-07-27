@@ -162,4 +162,20 @@ async function verifyToken() {
   } finally { if (to.clear) to.clear(); }
 }
 
-module.exports = { enabled: enabled, get: get, put: put, shape: shape, verifyToken: verifyToken };
+/* 키 나열(접두사) — 기보 수거·수집 확인용. 한 페이지(최대 1000)면 충분:
+ * 기보 키는 부팅당 1개라 수백 개가 되려면 몇 달이 걸린다. */
+async function list(prefix) {
+  if (!enabled()) return null;
+  var to = withTimeout(TIMEOUT_MS);
+  try {
+    var u = BASE + '/accounts/' + encodeURIComponent(ACCOUNT) +
+      '/storage/kv/namespaces/' + encodeURIComponent(NS) +
+      '/keys?limit=1000&prefix=' + encodeURIComponent(prefix || '');
+    var r = await fetch(u, { headers: { Authorization: 'Bearer ' + TOKEN }, signal: to.signal });
+    if (!r.ok) throw new Error('KV LIST ' + r.status + ' ' + (await r.text()).slice(0, 200));
+    var j = await r.json();
+    return (j.result || []).map(function (k) { return k.name; });
+  } finally { if (to.clear) to.clear(); }
+}
+
+module.exports = { enabled: enabled, get: get, put: put, list: list, shape: shape, verifyToken: verifyToken };

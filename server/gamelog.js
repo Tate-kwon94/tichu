@@ -121,5 +121,6 @@ async function flush() {                 // 종료 플러시 (server.js SIGTERM)
 }
 
 function status() { return { buffered: buffer.length, key: kvKey() }; }
+function recent(n) { return buffer.slice(-(n > 0 ? Math.min(n, MAX_BUFFER) : 50)); }
 
-module.exports = { onAction: onAction, flush: flush, status: status };
+module.exports = { onAction: onAction, flush: flush, status: status, recent: recent };
