@@ -3,10 +3,18 @@ name: mine
 on:
   workflow_dispatch:
     inputs:
-      games: { description: '자가대전 게임 수(라운드)', default: '2000' }
-      seed_start: { description: '시드 시작', default: '60000' }
-      puctms: { description: 'PUCT 예산 ms', default: '950' }
-      worlds: { description: '오라클 후보당 세계 수', default: '250' }
+      games:
+        description: '자가대전 게임 수(라운드)'
+        default: '2000'
+      seed_start:
+        description: '시드 시작'
+        default: '60000'
+      puctms:
+        description: 'PUCT 예산 ms'
+        default: '950'
+      worlds:
+        description: '오라클 후보당 세계 수'
+        default: '250'
 jobs:
   shard:
     runs-on: ubuntu-latest
@@ -26,14 +34,19 @@ jobs:
           WORLDS: ${{ inputs.worlds }}
         run: bash ml/run-mine-shard.sh
       - uses: actions/upload-artifact@v4
-        with: { name: mine-${{ matrix.shard }}, path: ci-mine/, if-no-files-found: ignore }
+        with:
+          name: mine-${{ matrix.shard }}
+          path: ci-mine/
+          if-no-files-found: ignore
   count:
     needs: shard
     if: always()
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
-        with: { path: ci-mine, merge-multiple: true }
+        with:
+          path: ci-mine
+          merge-multiple: true
       - run: |
           echo "### 발굴 스윕 수집" >> "$GITHUB_STEP_SUMMARY"
           wc -l ci-mine/*.jsonl | tail -1 >> "$GITHUB_STEP_SUMMARY"
