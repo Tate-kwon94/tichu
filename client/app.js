@@ -38,7 +38,7 @@ var state = {
   chatDraft: '',         // 작성 중 초안 (재렌더에도 보존)
   bubbles: {},           // seat → {text, until} 말풍선
   roomList: [],          // 홈 화면 열린 방 목록
-  botLevel: 'super3',    // 봇 단수 (super=1단 | super2=2단 | super3=3단 | devil) — 기본 최고단(3단)
+  botLevel: 'super3',    // 봇 단수 (super=1단 | super2=2단 | super3=3단) — 기본 최고단(3단)
   conn: { s: '', mode: '' }
 };
 var tichuArmTimer = null;
@@ -675,14 +675,13 @@ function botLevelPicker(full) {
   // 단(段) 체계: 1단(super)·2단(super2) — 승급전(직전 단 점수차 65% 격파) 통과 시 3단 추가.
   // 혼자 연습엔 악마(상대 패 열람, 등급 밖 치트) 포함. 온라인은 공정성 위해 단만.
   // (내부 봇키 super=1단, super2=2단. 쉬움/보통/고수 엔진은 코드에 남아있으나 피커에서 제외)
-  var opts = full
-    ? [['super', STR.botDan1], ['super2', STR.botDan2], ['super3', STR.botDan3], ['devil', STR.botDevil]]
-    : [['super', STR.botDan1], ['super2', STR.botDan2], ['super3', STR.botDan3]];
-  var lv = (['super2', 'super3', 'devil'].indexOf(state.botLevel) >= 0 && (state.botLevel !== 'devil' || full)) ? state.botLevel : 'super';
-  var hint = (lv === 'devil') ? STR.botHintDevil : (lv === 'super3') ? STR.botHintDan3 : (lv === 'super2') ? STR.botHintDan2 : STR.botHintDan1;
+  // 악마(상대 패 열람 치트)는 사용자 결정으로 제거 — 엔진 코드는 측정 진단용으로만 잔존
+  var opts = [['super', STR.botDan1], ['super2', STR.botDan2], ['super3', STR.botDan3]];
+  var lv = (['super2', 'super3'].indexOf(state.botLevel) >= 0) ? state.botLevel : 'super';
+  var hint = (lv === 'super3') ? STR.botHintDan3 : (lv === 'super2') ? STR.botHintDan2 : STR.botHintDan1;
   return '<div class="targetRow botRow"><span class="targetLbl">' + STR.botLevelLbl + '</span>' +
     opts.map(function (o) {
-      return '<button class="btn small ' + (lv === o[0] ? (o[0] === 'devil' ? 'danger' : 'gold') : 'ghost') +
+      return '<button class="btn small ' + (lv === o[0] ? 'gold' : 'ghost') +
         '" data-act="botlevel" data-l="' + o[0] + '">' + o[1] + '</button>';
     }).join('') + '</div>' +
     '<div class="botHint">' + hint + '</div>' +
@@ -1347,7 +1346,7 @@ function onClick(e) {
     case 'target': state.lobbyTarget = +el.getAttribute('data-n'); render(); break;
     case 'botlevel': {
       var lv = el.getAttribute('data-l');
-      state.botLevel = ['devil', 'super', 'super2', 'super3'].indexOf(lv) >= 0 ? lv : 'super'; // 1단(super) 기본
+      state.botLevel = ['super', 'super2', 'super3'].indexOf(lv) >= 0 ? lv : 'super'; // 1단(super) 기본
       try { localStorage.setItem('tichu.botlevel', state.botLevel); } catch (e3) {}
       render();
       break;
@@ -1518,7 +1517,7 @@ function init() {
   try { state.office = localStorage.getItem('tichu.office') === '1'; } catch (e) {}
   try { var xs = localStorage.getItem('tichu.xlstyle'); state.xlStyle = (xs === '1' || xs === '2' || xs === '3') ? xs : ''; } catch (e) {}
   try { var gh = parseInt(localStorage.getItem('tichu.ghost') || '0', 10); state.ghost = (gh === 1 || gh === 2) ? gh : 0; } catch (e) {}
-  try { var bl = localStorage.getItem('tichu.botlevel'); state.botLevel = ['easy', 'normal', 'hard', 'devil', 'super', 'super2', 'super3'].indexOf(bl) >= 0 ? bl : 'super3'; } catch (e) {}
+  try { var bl = localStorage.getItem('tichu.botlevel'); state.botLevel = ['easy', 'normal', 'hard', 'super', 'super2', 'super3'].indexOf(bl) >= 0 ? bl : 'super3'; } catch (e) {}
   state.urlRoom = (new URLSearchParams(location.search).get('room') || '').toUpperCase().slice(0, 4);
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js?v=' + (window.__ASSET_V || '')).catch(function () {});

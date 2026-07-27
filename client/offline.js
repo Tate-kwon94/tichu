@@ -7,7 +7,7 @@ var NAMES = ['나', '레오', '미나', '준'];
 
 function create(handlers, resume, botLevel, superHy, declNet, exchNet) {
   var C = TichuCore, B = TichuBots;
-  botLevel = ['easy', 'normal', 'hard', 'devil', 'super', 'super2', 'super3'].indexOf(botLevel) >= 0 ? botLevel : 'normal';
+  botLevel = ['easy', 'normal', 'hard', 'super', 'super2', 'super3'].indexOf(botLevel) >= 0 ? botLevel : 'normal';
   if ((botLevel === 'super' || botLevel === 'super2' || botLevel === 'super3') && !superHy) botLevel = 'hard'; // 가중치 미로드 시 안전 폴백
   var hist = []; // 라운드 내 플레이 이력 — 초고수 신경망 입력
   function trackHist(a) {
