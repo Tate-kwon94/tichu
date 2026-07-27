@@ -6,6 +6,7 @@ var path = require('path');
 var C = require('../shared/tichu-core.js');
 var B = require('../shared/bots.js');
 var STATS = require('./stats.js');
+var GLOG = require('./gamelog.js');
 
 // 초고수 봇(신경망+탐색 하이브리드) — 첫 사용 시 가중치 로드(~3MB)
 var superBot = null;
@@ -78,6 +79,7 @@ function recordStats(room, g) {
 // 플레이 이력(라운드 내 최근 수) — 초고수 신경망 입력. 라운드 경계에서 리셋
 function trackHist(room, act, g) {
   recordStats(room, g);
+  GLOG.onAction(room, act, g);   // 기보 — 실패해도 게임에 영향 없음(내부 try)
   if (!room.playHist) room.playHist = [];
   if (act.type === 'next_round' || act.type === 'restart') { room.playHist = []; return; }
   if (act.type === 'pass_turn') room.playHist.push({ s: act.seat, t: 'pass', r: 0, l: 0 });

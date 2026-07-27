@@ -46,7 +46,8 @@ function shutdown(sig) {
    * 느린 날에는 플러시가 자기 안전망에 잘려 마지막 게임이 유실된다. */
   var hard = setTimeout(function () { process.exit(0); }, 20000);
   if (hard.unref) hard.unref();
-  Promise.resolve(stats.flush())
+  var glog = require('./server/gamelog.js');
+  Promise.resolve(Promise.all([stats.flush(), glog.flush()]))
     .catch(function (e) { console.error('[tichu] 종료 플러시 실패:', e && e.message); })
     .then(function () { clearTimeout(hard); process.exit(0); });
 }
