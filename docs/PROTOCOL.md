@@ -76,7 +76,13 @@ CANNOT_PASS_LEAD, STALE_VERSION, BAD_REQUEST, RATE_LIMITED, KICKED`
   - 진단 세부(config·hint)는 `?diag=<TICHU_DIAG>` 일치 시에만 포함.
 - `GET /stats?name=<닉네임>` → `{ detail: {games, wins, elo, tier, anchors{dan1,dan2,dan3}, partners...} }`
 
-## 스냅샷 구조 (플레이어별 redacted)
+## GET /gamelog/* — 기보 (인증 없음, /stats와 같은 위협 모델)
+라운드가 끝난 손패는 공개 정보라 노출해도 게임에 영향이 없다. 사람이 참여한 라운드만 기록된다.
+- `GET /gamelog/status` → `{ buffered, key, kv: {enabled, keys: [...]} }` — 수집 확인·KV 키 나열
+- `GET /gamelog/recent?n=<개수>` → 이번 부팅의 최근 기보 (JSONL, 기본 50, 최대 400)
+- `GET /gamelog/get?key=<KV키>` → 과거 부팅 키의 기보 (JSONL, `tichu:gamelog:` 접두사만 허용)
+- 뷰어: `/replay.html` — 위 API로 라운드를 수 단위 재생 (4인 전체 패 복기, 서버 무수정 정적 페이지)
+- 레코드 스키마는 server/gamelog.js 머리주석, 재생 원리는 ml/gamelog-replay.js 참조
 
 ```js
 {
