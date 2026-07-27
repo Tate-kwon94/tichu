@@ -1347,7 +1347,7 @@ function onClick(e) {
     case 'target': state.lobbyTarget = +el.getAttribute('data-n'); render(); break;
     case 'botlevel': {
       var lv = el.getAttribute('data-l');
-      state.botLevel = ['devil', 'super', 'super2'].indexOf(lv) >= 0 ? lv : 'super'; // 1단(super) 기본
+      state.botLevel = ['devil', 'super', 'super2', 'super3'].indexOf(lv) >= 0 ? lv : 'super'; // 1단(super) 기본
       try { localStorage.setItem('tichu.botlevel', state.botLevel); } catch (e3) {}
       render();
       break;
@@ -1518,7 +1518,7 @@ function init() {
   try { state.office = localStorage.getItem('tichu.office') === '1'; } catch (e) {}
   try { var xs = localStorage.getItem('tichu.xlstyle'); state.xlStyle = (xs === '1' || xs === '2' || xs === '3') ? xs : ''; } catch (e) {}
   try { var gh = parseInt(localStorage.getItem('tichu.ghost') || '0', 10); state.ghost = (gh === 1 || gh === 2) ? gh : 0; } catch (e) {}
-  try { var bl = localStorage.getItem('tichu.botlevel'); state.botLevel = ['easy', 'normal', 'hard', 'devil', 'super', 'super2'].indexOf(bl) >= 0 ? bl : 'super2'; } catch (e) {}
+  try { var bl = localStorage.getItem('tichu.botlevel'); state.botLevel = ['easy', 'normal', 'hard', 'devil', 'super', 'super2', 'super3'].indexOf(bl) >= 0 ? bl : 'super3'; } catch (e) {}
   state.urlRoom = (new URLSearchParams(location.search).get('room') || '').toUpperCase().slice(0, 4);
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js?v=' + (window.__ASSET_V || '')).catch(function () {});
