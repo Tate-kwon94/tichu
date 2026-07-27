@@ -16,6 +16,10 @@ var path = require('path');
 var C = require(path.join(__dirname, '..', 'shared', 'tichu-core.js'));
 var B = require(path.join(__dirname, '..', 'shared', 'bots.js'));
 var NET = require(path.join(__dirname, '..', 'shared', 'net-infer.js'));
+// 4단 환경: 양팀 교환을 학습(선형)으로 (동결 3단 생태계). 미설정 시 2단 환경 그대로.
+var RLEXM = process.env.TICHU_RL_EXW
+  ? require(path.join(__dirname, 'exchange-infer.js')).load(process.env.TICHU_RL_EXW)
+  : null;
 
 var learnNet = NET.load(process.argv[2]);
 var frozenNet = NET.load(process.argv[3]);
@@ -90,7 +94,8 @@ function playGame(seed) {
         }
       }
     } else if (g.phase === 'exchange' && !g.exchangeGive[s]) {
-      a = { type: 'submit_exchange', seat: s, give: B.botExchange(g, s, { keepSpecials: true }) }; // ⑦ 양팀 2단
+      a = { type: 'submit_exchange', seat: s,
+            give: (RLEXM && RLEXM.give(g, s)) || B.botExchange(g, s, { keepSpecials: true }) }; // ⑦ 양팀 2단
     } else if (decl && g.phase === 'grand' && !g.grandAnswered[s]) {
       a = { type: 'call_grand', seat: s, call: decl.grand(g.hands[s]) };
     } else if (decl && g.phase === 'play' && g.turnSeat === s && !g.playedFirst[s] &&

@@ -22,6 +22,10 @@ var B = require(path.join(__dirname, '..', 'shared', 'bots.js'));
 var NDEAL = +process.argv[2] || 100;
 var SEED0 = +process.argv[3] || 970000;
 var NW = +process.argv[4] || 600;
+// 3단 생태계 라벨: 다른 좌석 교환을 학습(선형)으로 — 4단용 라벨은 새 기준선에서 계산해야 한다
+var EXM = process.env.TICHU_LABEL_EXW
+  ? require(path.join(__dirname, 'exchange-infer.js')).load(process.env.TICHU_LABEL_EXW)
+  : null;
 
 function sp(id) { return C.isSpecial(id); }
 function normalsAsc(h, ex) {
@@ -96,7 +100,8 @@ function rollRound(g, seat, cand) {
     var s = w[0], a;
     if (g.phase === 'exchange' && !g.exchangeGive[s]) {
       a = (s === seat) ? { type: 'submit_exchange', seat: s, give: giveOf(s, cand) }
-                       : { type: 'submit_exchange', seat: s, give: B.botExchange(g, s, { keepSpecials: true }) };
+                       : { type: 'submit_exchange', seat: s,
+                           give: (EXM && EXM.give(g, s)) || B.botExchange(g, s, { keepSpecials: true }) };
     } else a = B.botDecide(g, s, 'normal');
     if (!a || !g.apply(a).ok) return null;
   }
