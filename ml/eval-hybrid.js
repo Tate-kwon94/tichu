@@ -8,6 +8,7 @@ var C = require(path.join(__dirname, '..', 'shared', 'tichu-core.js'));
 var B = require(path.join(__dirname, '..', 'shared', 'bots.js'));
 var HY = require(path.join(__dirname, 'hybrid-bot.js'));
 var EG = require(path.join(__dirname, 'endgame.js'));
+var DEEP = require(path.join(__dirname, 'deep-move.js'));
 
 var wPath = process.argv[2];
 var oppLevel = process.argv[3] || 'hard';
@@ -148,6 +149,12 @@ function hyDecide(g, seat, hist) {
     }
   }
   if (g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
+    // deepThink(4단 후보): 발굴 스윕 고손실 국면(티츄 생존·초중반 리드)에서
+    // PUCT 대신 후보 전수 × W세계 CRN 평가 — 결정당 ~1.5s, 전이 함정 없음
+    if (hasCand('deepThink') && DEEP.triggers(g, seat)) {
+      var dm = DEEP.deepMove(g, seat, { worlds: +process.env.TICHU_DEEP_W || 200 });
+      if (dm) return dm;
+    }
     // 종반 완전탐색 모듈(3단 후보) — 전원 손패 소량이면 결정화 K세계 정확풀이 다수결로 교체
     if (hasCand('endgame') && EG.maxHand(g) <= (+process.env.TICHU_EG_CAP || 4)) {
       var em = EG.endgameMove(g, seat, { K: +process.env.TICHU_EG_K || 12,
