@@ -87,6 +87,27 @@ if (oppLevel.indexOf('hy:') === 0) {
 // 2단 후보 프로파일 — 주(main) 봇에만 켜지는 ①②③ 개선 (상대=동결 1단은 미적용).
 // 사용: TICHU_CAND=declAdjust,holdValue,oppRead node eval-hybrid.js ...
 var EXF = null, EXW = null;   // 학습 교환 지연 로드
+/* 학습 교환 선택기 — 주봇(3단 후보)과 상대(동결 3단 기준선)가 공유한다 */
+function learnedGive(g, seat) {
+  if (!EXF) {
+    EXF = require(path.join(__dirname, 'exchange-feats.js'));
+    EXW = JSON.parse(require('fs').readFileSync(
+      process.env.TICHU_EXW || path.join(__dirname, 'weights-exchange-linear.json'), 'utf8')).w;
+  }
+  var cands = EXF.candidates(g.hands[seat]);
+  if (cands.length < 2) return null;
+  var best = 0, bestV = -1e9;
+  for (var i = 0; i < cands.length; i++) {
+    var x = EXF.features(g.hands[seat], cands[i]), v = 0;
+    for (var j = 0; j < x.length; j++) v += x[j] * EXW[j];
+    if (v > bestV) { bestV = v; best = i; }
+  }
+  var give = {};
+  give[(seat + 1) % 4] = cands[best].o[0];
+  give[(seat + 3) % 4] = cands[best].o[1];
+  give[C.partnerOf(seat)] = cands[best].p;
+  return give;
+}
 var CAND = (process.env.TICHU_CAND || '').split(',').filter(Boolean);
 if (CAND.indexOf('wishCount') >= 0) globalThis.__TICHU_WISH_COUNT = 1; // 카운팅 소원(주봇 탐색 경로 전체)
 function hasCand(f) { return CAND.indexOf(f) >= 0; }
@@ -160,27 +181,10 @@ function hyDecide(g, seat, hist) {
   // ⑦ 교환: 마작·개를 상대에게 넘기지 않는다 (2단 후보). 상대측(고정 1단)은 기존 그대로.
   // exchTriple/exchSF(3단 후보): 랭크 3장+ / 스티플 잠재(같은 무늬 5랭크 창 4장+) 보존 — 사용자 피드백
   if (hasCand('exchange') && g.phase === 'exchange' && !g.exchangeGive[seat]) {
-    // learnExch(3단 후보): 학습 교환 — 특징×가중치 argmax (단계1 게이트 +2.18±0.75 통과)
+    // learnExch(3단): 학습 교환 — 특징×가중치 argmax (단계1 게이트 +2.18±0.75 통과)
     if (hasCand('learnExch')) {
-      if (!EXF) {
-        EXF = require(path.join(__dirname, 'exchange-feats.js'));
-        EXW = JSON.parse(require('fs').readFileSync(
-          process.env.TICHU_EXW || path.join(__dirname, 'weights-exchange-linear.json'), 'utf8')).w;
-      }
-      var exC = EXF.candidates(g.hands[seat]);
-      if (exC.length >= 2) {
-        var exBest = 0, exBestV = -1e9;
-        for (var exI = 0; exI < exC.length; exI++) {
-          var exX = EXF.features(g.hands[seat], exC[exI]), exV = 0;
-          for (var exJ = 0; exJ < exX.length; exJ++) exV += exX[exJ] * EXW[exJ];
-          if (exV > exBestV) { exBestV = exV; exBest = exI; }
-        }
-        var exGive = {};
-        exGive[(seat + 1) % 4] = exC[exBest].o[0];
-        exGive[(seat + 3) % 4] = exC[exBest].o[1];
-        exGive[C.partnerOf(seat)] = exC[exBest].p;
-        return { type: 'submit_exchange', seat: seat, give: exGive };
-      }
+      var lg = learnedGive(g, seat);
+      if (lg) return { type: 'submit_exchange', seat: seat, give: lg };
     }
     return {
       type: 'submit_exchange', seat: seat,
@@ -206,8 +210,13 @@ function oppHyDecide(g, seat, hist) {
     if (oppHyMode === 'puct') return oppHy.decidePuct(g, seat, hist, { budgetMs: oppMs, c: oppHyC });
     return oppHy.decidePlus(g, seat, hist, { budgetMs: oppMs, temp: oppHyTemp });
   }
-  // 상대(기준선)도 사다리가 올라가면 개선분을 갖는다. 3단 승단전: TICHU_OPP_CAND=exchange
+  // 상대(기준선)도 사다리가 올라가면 개선분을 갖는다.
+  // 4단 승단전: TICHU_OPP_CAND=exchange,learnExch (상대 = 동결 3단 = swa 가중치 + 학습 교환)
   if (hasOppCand('exchange') && g.phase === 'exchange' && !g.exchangeGive[seat]) {
+    if (hasOppCand('learnExch')) {
+      var olg = learnedGive(g, seat);
+      if (olg) return { type: 'submit_exchange', seat: seat, give: olg };
+    }
     return { type: 'submit_exchange', seat: seat, give: B.botExchange(g, seat, { keepSpecials: true }) };
   }
   return B.botDecide(g, seat, 'normal');

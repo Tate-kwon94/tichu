@@ -58,6 +58,8 @@ var STR = {
   teamsLbl: '팀 배정',
   teamsOrder: '들어온 순서',
   teamsRandom: '랜덤',
+  teamsShuffled: '팀을 무작위로 섞었습니다',
+  teamsOrdered: '들어온 순서대로 앉혔습니다',
   teamsHint: '마주 보는 자리가 한 팀 — 순서대로 앉히거나 무작위로 섞습니다 (방장만)',
   botDan2: '2단',
   botDan3: '3단',

@@ -779,8 +779,8 @@ function renderLobby() {
     '<div class="lobbyHint">' + STR.teamHint + '</div>' +
     (isHost()
       ? '<div class="targetRow"><span class="targetLbl">' + STR.teamsLbl + '</span>' +
-          '<button class="btn small ghost" data-act="arrange" data-mode="order">' + STR.teamsOrder + '</button>' +
-          '<button class="btn small ghost" data-act="arrange" data-mode="random">' + STR.teamsRandom + '</button>' +
+          '<button class="btn small ' + (state.arrangeMode === 'order' ? 'gold' : 'ghost') + '" data-act="arrange" data-mode="order">' + STR.teamsOrder + '</button>' +
+          '<button class="btn small ' + (state.arrangeMode === 'random' ? 'gold' : 'ghost') + '" data-act="arrange" data-mode="random">' + STR.teamsRandom + '</button>' +
         '</div><div class="botHint">' + STR.teamsHint + '</div>'
       : '') +
     (isHost()
@@ -1443,7 +1443,13 @@ function onClick(e) {
     case 'next-round': send({ type: 'next_round' }); break;
     case 'restart': send({ type: 'restart_game' }); break;
     case 'to-lobby': send({ type: 'to_lobby' }); break;
-    case 'arrange': send({ type: 'arrange_seats', mode: t.getAttribute('data-mode') }); break;
+    case 'arrange': {
+      var am = t.getAttribute('data-mode');
+      state.arrangeMode = am;                        // 마지막 선택 강조(클릭 피드백)
+      send({ type: 'arrange_seats', mode: am });
+      toast(am === 'random' ? STR.teamsShuffled : STR.teamsOrdered, { ms: 1800 });
+      break;
+    }
     case 'stats-open': openStats(); break;
     case 'stats-close': state.statsOpen = false; render(); break;
     case 'help-open': state.help = true; state.helpFromModal = false; render(); break;
