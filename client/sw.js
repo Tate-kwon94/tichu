@@ -1,18 +1,22 @@
 /* 서비스워커 — 정적 자산 캐시(오프라인 혼자 연습), 네트워크 우선(업데이트 안전) */
 var VERSION = 'tichu-v27';
+/* 자산 URL에 ?v=를 붙인다 — Cloudflare가 원본의 no-cache를 max-age=14400(4시간)으로
+ * 덮어써서, URL이 그대로면 배포 후에도 브라우저가 최대 4시간 구파일을 쓴다(실측).
+ * index.html은 CF가 캐시하지 않으므로(DYNAMIC) 새 버전 URL이 즉시 전파된다. */
+var V = 'v=27';
 var ASSETS = [
   './',
   'index.html',
-  'style.css',
-  'app.js',
-  'transport.js',
-  'offline.js',
-  'strings.js',
-  'shared/tichu-core.js',
-  'shared/bots.js',
-  'shared/net-infer.js',
-  'shared/hybrid-bot.js',
-  'shared/declare.js',
+  'style.css?' + V,
+  'app.js?' + V,
+  'transport.js?' + V,
+  'offline.js?' + V,
+  'strings.js?' + V,
+  'shared/tichu-core.js?' + V,
+  'shared/bots.js?' + V,
+  'shared/net-infer.js?' + V,
+  'shared/hybrid-bot.js?' + V,
+  'shared/declare.js?' + V,
   'manifest.webmanifest',
   'icons/icon.svg',
   'icons/xlsx.svg',
@@ -43,7 +47,7 @@ self.addEventListener('fetch', function (e) {
   if (url.origin !== location.origin) return;
   if (LIVE.indexOf(url.pathname) >= 0) return; // 실시간 통신은 절대 가로채지 않음
   e.respondWith(
-    fetch(req).then(function (res) {
+    fetch(req, { cache: 'no-store' }).then(function (res) {
       if (res && res.ok) {
         var copy = res.clone();
         caches.open(VERSION).then(function (c) { c.put(req, copy); });

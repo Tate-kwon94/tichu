@@ -1506,7 +1506,7 @@ function init() {
   try { var bl = localStorage.getItem('tichu.botlevel'); state.botLevel = ['easy', 'normal', 'hard', 'devil', 'super', 'super2'].indexOf(bl) >= 0 ? bl : 'super2'; } catch (e) {}
   state.urlRoom = (new URLSearchParams(location.search).get('room') || '').toUpperCase().slice(0, 4);
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-    navigator.serviceWorker.register('sw.js').catch(function () {});
+    navigator.serviceWorker.register('sw.js?v=' + (window.__ASSET_V || '')).catch(function () {});
     // 새 버전이 배포돼 새 서비스워커가 제어를 넘겨받으면 한 번만 자동 새로고침
     // (첫 설치는 제외 — controller가 이미 있을 때만 = 업데이트)
     var hadController = !!navigator.serviceWorker.controller, swReloaded = false;
