@@ -1,0 +1,39 @@
+name: mine
+# 발굴 스윕 — 3단 PUCT vs 심층 오라클 불일치를 결정 유형별로 채굴 (4단 광맥 지도)
+on:
+  workflow_dispatch:
+    inputs:
+      games: { description: '자가대전 게임 수(라운드)', default: '2000' }
+      seed_start: { description: '시드 시작', default: '60000' }
+      puctms: { description: 'PUCT 예산 ms', default: '950' }
+      worlds: { description: '오라클 후보당 세계 수', default: '250' }
+jobs:
+  shard:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+    steps:
+      - uses: actions/checkout@v4
+      - name: mine
+        env:
+          SHARD: ${{ matrix.shard }}
+          TOTAL_SHARDS: '20'
+          GAMES: ${{ inputs.games }}
+          SEED_START: ${{ inputs.seed_start }}
+          PUCTMS: ${{ inputs.puctms }}
+          WORLDS: ${{ inputs.worlds }}
+        run: bash ml/run-mine-shard.sh
+      - uses: actions/upload-artifact@v4
+        with: { name: mine-${{ matrix.shard }}, path: ci-mine/, if-no-files-found: ignore }
+  count:
+    needs: shard
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: ci-mine, merge-multiple: true }
+      - run: |
+          echo "### 발굴 스윕 수집" >> "$GITHUB_STEP_SUMMARY"
+          wc -l ci-mine/*.jsonl | tail -1 >> "$GITHUB_STEP_SUMMARY"
