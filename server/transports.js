@@ -163,7 +163,8 @@ function handleGamelog(req, res, p, q) {
     var key = String(q.key || '');
     if (key.indexOf('tichu:gamelog:') !== 0) { json(400, { error: 'tichu:gamelog: 키만 조회 가능' }); return; }
     Promise.resolve(KV.get(key))
-      .then(function (v) { if (v == null) json(404, { error: '키 없음' }); else text(200, v); })
+      // 끝에 개행을 보장한다 — 여러 키를 이어붙일 때 마지막·첫 레코드가 한 줄로 붙는다(실제로 겪음)
+      .then(function (v) { if (v == null) json(404, { error: '키 없음' }); else text(200, v.slice(-1) === '\n' ? v : v + '\n'); })
       .catch(function (e) { json(502, { error: String(e && e.message).slice(0, 200) }); });
     return;
   }
