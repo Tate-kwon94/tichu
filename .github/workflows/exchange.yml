@@ -1,0 +1,73 @@
+name: exchange
+# 교환 전략 대량 비교 — 짝지은 딜로 전략 간 차이를 좁은 오차로 재는 검정.
+# 로드맵의 "교환 MLP +0.59±0.36(60k딜, 1.6σ) — 유의 판정에 20만 딜 필요, 비용 대비 무의미"는
+# 로컬 비용 기준 판단이었다. CI 80코어면 100만 딜이 분 단위다.
+# 수동 실행 전용.
+
+on:
+  workflow_dispatch:
+    inputs:
+      deals:
+        description: '총 딜 수 (SE ∝ 1/√n — 2,000딜에 SE 2.1, 20만이면 0.21, 100만이면 0.09)'
+        default: '400000'
+      seed_start:
+        description: '시드 시작'
+        default: '5000000'
+      strats:
+        description: '비교할 전략 CSV — 첫 항목이 기준선 (base|keep|learned|learnedMlp|keep_triple|...)'
+        default: 'learned,learnedMlp'
+      eco:
+        description: '상대팀(생태계) 전략 — 4단 판정은 3단 상대여야 하므로 learned'
+        default: 'learned'
+      policy:
+        description: '플레이 정책 (normal=휴리스틱, nng=신경망 그리디)'
+        default: 'normal'
+      bar:
+        description: '판정 기준 점수차 (0이면 0과의 유의차만 본다)'
+        default: '0'
+
+concurrency:
+  group: exchange
+  cancel-in-progress: false
+
+jobs:
+  shard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 175
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+    steps:
+      - uses: actions/checkout@v4
+      - name: compare exchange strategies
+        env:
+          SHARD: ${{ matrix.shard }}
+          TOTAL_SHARDS: '20'
+          DEALS: ${{ inputs.deals }}
+          SEED_START: ${{ inputs.seed_start }}
+          STRATS: ${{ inputs.strats }}
+          ECO: ${{ inputs.eco }}
+          POLICY: ${{ inputs.policy }}
+        run: bash ml/run-exchange-shard.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: exch-${{ matrix.shard }}
+          path: ci-exch/
+          if-no-files-found: ignore
+
+  merge:
+    needs: shard
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: ci-exch
+          merge-multiple: true
+      - run: |
+          echo "### 교환 전략 비교 (기준선 = ${{ inputs.strats }} 의 첫 항목, 생태계 ${{ inputs.eco }})" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          python3 ml/merge-xd.py 'ci-exch/*.log' '${{ inputs.bar }}' >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
