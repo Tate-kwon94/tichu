@@ -203,7 +203,14 @@ function genMoves(hand, cur, wish) {
   });
 
   // 스트레이트 (마작=1 포함, 불사조는 빈칸 1개 대체 — 1 자리는 불가)
-  function has(r) { return (r === 1 && hasMJ) || (by[r] && by[r].length > 0); }
+  // hasR/pfx는 프로파일 기반 최적화(2026-07-28): 아래 이중루프가 has()를 랭크당 반복 호출해
+  // genMoves가 탐색 시간의 46%를 먹고 있었다. 랭크 보유 여부를 한 번만 만들고
+  // 누적합으로 구간 결손 수를 O(1)에 얻는다. 생성되는 수 집합은 완전히 동일하다(차등 테스트 4만 케이스).
+  var hasR = new Uint8Array(16), pfx = new Uint8Array(17);
+  hasR[1] = hasMJ ? 1 : 0;
+  for (var hr = 2; hr <= 14; hr++) hasR[hr] = (by[hr] && by[hr].length > 0) ? 1 : 0;
+  for (var pi = 1; pi <= 15; pi++) pfx[pi] = pfx[pi - 1] + (hasR[pi] || 0);
+  function nMiss(a1, b1) { return (b1 - a1 + 1) - (pfx[b1] - pfx[a1 - 1]); }   // 구간 결손 개수
   // 일반 스트레이트가 우연히 전부 같은 무늬면(=스트플 폭탄으로 판정됨) 다른 무늬로 교체.
   // 교체 불가면 null — 그 카드들은 폭탄 루프에서 bombstraight로 따로 생성된다.
   function unflush(cards) {
@@ -227,49 +234,69 @@ function genMoves(hand, cur, wish) {
   }
   for (var a = 1; a <= 10; a++) {
     for (var b = a + 4; b <= 14; b++) {
-      var miss = [];
-      for (var r1 = a; r1 <= b; r1++) if (!has(r1)) miss.push(r1);
-      if (miss.length === 0) {
+      var nm = nMiss(a, b);
+      if (nm > 1) {
+        // 결손이 2 이상이면 b를 늘려도 줄지 않는다 — 남은 b를 통째로 건너뛴다
+        if (nm - (14 - b) > 1) break;
+        continue;
+      }
+      if (nm === 0) {
         var cs1 = [];
         for (var r2 = a; r2 <= b; r2++) cs1.push(r2 === 1 ? 'MJ' : by[r2][0]);
         cs1 = unflush(cs1);
         if (cs1) add(cs1, { type: 'straight', rank: b, length: b - a + 1 });
-      } else if (miss.length === 1 && hasPH && miss[0] >= 2) {
-        var cs2 = [];
-        for (var r3 = a; r3 <= b; r3++) cs2.push(r3 === miss[0] ? 'PH' : (r3 === 1 ? 'MJ' : by[r3][0]));
-        add(cs2, { type: 'straight', rank: b, length: b - a + 1 });
+      } else if (hasPH) {                              // nm === 1
+        var m0 = -1;
+        for (var mr = a; mr <= b; mr++) if (!hasR[mr]) { m0 = mr; break; }
+        if (m0 >= 2) {
+          var cs2 = [];
+          for (var r3 = a; r3 <= b; r3++) cs2.push(r3 === m0 ? 'PH' : (r3 === 1 ? 'MJ' : by[r3][0]));
+          add(cs2, { type: 'straight', rank: b, length: b - a + 1 });
+        }
       }
     }
   }
 
   // 연속 페어 (불사조는 한 자리만 보충)
+  // 연속 페어: pa를 고정하고 pb를 늘리면 카드가 누적된다 — 매번 처음부터 다시 모으지 않고
+  // 이어붙이며, 실패하면 그 pa는 즉시 끝난다(더 늘려도 실패는 유지).
+  var cnt = new Uint8Array(16);
+  for (var cr = 2; cr <= 14; cr++) cnt[cr] = by[cr] ? by[cr].length : 0;
   for (var pa = 2; pa <= 13; pa++) {
-    for (var pb = pa + 1; pb <= 14; pb++) {
-      var usedPH = false, okSeq = true, csp = [];
-      for (var pr1 = pa; pr1 <= pb; pr1++) {
-        var g2 = by[pr1] || [];
-        if (g2.length >= 2) { csp.push(g2[0], g2[1]); }
-        else if (g2.length === 1 && hasPH && !usedPH) { csp.push(g2[0], 'PH'); usedPH = true; }
-        else { okSeq = false; break; }
-      }
-      if (okSeq) add(csp, { type: 'pairseq', rank: pb, length: (pb - pa + 1) * 2 });
+    var usedPH = false, csp = [];
+    for (var pb = pa; pb <= 14; pb++) {
+      var g2 = by[pb];
+      if (cnt[pb] >= 2) { csp.push(g2[0], g2[1]); }
+      else if (cnt[pb] === 1 && hasPH && !usedPH) { csp.push(g2[0], 'PH'); usedPH = true; }
+      else break;                                   // 이 pa로는 여기까지 — 더 늘려도 안 된다
+      if (pb > pa) add(csp.slice(), { type: 'pairseq', rank: pb, length: (pb - pa + 1) * 2 });
     }
   }
 
   // 스트레이트 플러시 폭탄 (불사조/마작 불가)
+  // 무늬별 연속 구간을 한 번 훑어 찾는다 — 구간 밖에서는 시작조차 하지 않는다
+  // (종전은 무늬마다 9×10×길이 스캔이었다).
   SUITS.forEach(function (su) {
-    var set = {};
-    norm.forEach(function (id) { if (id[0] === su) set[rankOf(id)] = id; });
+    var set = null;
+    for (var ni = 0; ni < norm.length; ni++) {
+      if (norm[ni][0] === su) { if (!set) set = {}; set[rankOf(norm[ni])] = norm[ni]; }
+    }
+    if (!set) return;
     for (var fa = 2; fa <= 10; fa++) {
-      for (var fb = fa + 4; fb <= 14; fb++) {
-        var okF = true;
-        for (var fr = fa; fr <= fb; fr++) if (!set[fr]) { okF = false; break; }
-        if (okF) {
-          var csf = [];
-          for (var fr2 = fa; fr2 <= fb; fr2++) csf.push(set[fr2]);
-          add(csf, { type: 'bombstraight', rank: fb, length: fb - fa + 1 });
+      if (!set[fa]) continue;
+      if (fa > 2 && set[fa - 1]) continue;          // 연속 구간의 시작점만 (내부는 아래 루프가 덮는다)
+      var run = fa;
+      while (run < 14 && set[run + 1]) run++;        // 이 무늬의 연속 끝
+      for (var s2 = fa; s2 + 4 <= run; s2++) {
+        var csf = [];
+        for (var fr2 = s2; fr2 <= s2 + 4; fr2++) csf.push(set[fr2]);
+        add(csf, { type: 'bombstraight', rank: s2 + 4, length: 5 });
+        for (var fb = s2 + 5; fb <= run; fb++) {
+          csf = csf.concat([set[fb]]);
+          add(csf, { type: 'bombstraight', rank: fb, length: fb - s2 + 1 });
         }
       }
+      fa = run;                                     // 이 구간은 처리 완료
     }
   });
 
