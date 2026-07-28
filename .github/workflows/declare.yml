@@ -1,0 +1,73 @@
+name: declare
+# 선언 임계값(스몰 티츄 / 라지 티츄) 고정밀 스윕.
+# 과거 스윕은 4,000딜(SE≈1.5)이라 ±3점 효과가 안 보였다 — "현행이 최적"은 그 정밀도의 결론이다.
+# 내리는 방향은 이미 확정 음수(t0.34/g0.34 = −49.9). 올리는 방향이 미측정 구간이며,
+# 사용자 인터뷰에서 "사람은 폭탄 아니면 확정(~90%) 대역에서만 선언"이 나온 축이다.
+# 수동 실행 전용.
+
+on:
+  workflow_dispatch:
+    inputs:
+      deals:
+        description: '총 딜 수 (격자 점마다 같은 딜을 재생 — 비용은 딜수 × 격자크기)'
+        default: '100000'
+      seed_start:
+        description: '시드 시작'
+        default: '7000000'
+      decl_t:
+        description: '스몰 티츄 임계 후보 CSV (현행 0.50)'
+        default: '0.50,0.56,0.62,0.68'
+      decl_g:
+        description: '라지 티츄 임계 후보 CSV (현행 0.52)'
+        default: '0.52,0.58,0.64,0.70'
+      exch:
+        description: '교환 전략 (keep=2단 기준선)'
+        default: 'keep'
+
+concurrency:
+  group: declare
+  cancel-in-progress: false
+
+jobs:
+  shard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 175
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+    steps:
+      - uses: actions/checkout@v4
+      - name: sweep declaration thresholds
+        env:
+          SHARD: ${{ matrix.shard }}
+          TOTAL_SHARDS: '20'
+          DEALS: ${{ inputs.deals }}
+          SEED_START: ${{ inputs.seed_start }}
+          DECL_T: ${{ inputs.decl_t }}
+          DECL_G: ${{ inputs.decl_g }}
+          EXCH: ${{ inputs.exch }}
+        run: bash ml/run-declare-shard.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: decl-${{ matrix.shard }}
+          path: ci-decl/
+          if-no-files-found: ignore
+
+  merge:
+    needs: shard
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: ci-decl
+          merge-multiple: true
+      - run: |
+          echo "### 선언 임계값 스윕 (기준선 = 현행 t0.50/g0.52, 교환 ${{ inputs.exch }})" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          python3 ml/merge-xd.py 'ci-decl/*.log' 0 >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "주의: 최댓값 선택은 승자의 저주 — 상위 후보는 다른 시드로 재확인할 것." >> "$GITHUB_STEP_SUMMARY"

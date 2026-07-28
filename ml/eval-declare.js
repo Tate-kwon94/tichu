@@ -35,12 +35,21 @@ var declBase = declWith(BASE_T, BASE_G);
 /* 격자는 현행을 가운데 두고 양쪽으로. 처음엔 올리는 쪽만 훑었는데, 실전 로그에서
  * 우리 팀 선언 성공률이 스몰 63.6%·라지 60.9%로 손익분기 50%를 크게 웃도는 것이 확인됐다
  * → 오히려 더 공격적으로 가야 한다. 격자의 끝이 현행이면 방향을 못 찾는다. */
+/* 격자는 TICHU_DECL_T/TICHU_DECL_G(콤마 목록)로 지정 가능 — CI 대량 스윕용.
+ * 과거 스윕은 4,000딜(SE≈1.5)이라 ±3점 효과가 안 보였다. "현행이 최적"은 그 정밀도의 결론이다. */
 var GRID = [];
-[0.34, 0.40, 0.46, BASE_T].forEach(function (t) {
-  [0.34, 0.40, 0.46, BASE_G].forEach(function (g) {
+var TS = (process.env.TICHU_DECL_T || '').split(',').filter(Boolean).map(Number);
+var GS = (process.env.TICHU_DECL_G || '').split(',').filter(Boolean).map(Number);
+if (!TS.length) TS = [0.34, 0.40, 0.46, BASE_T];
+if (!GS.length) GS = [0.34, 0.40, 0.46, BASE_G];
+TS.forEach(function (t) {
+  GS.forEach(function (g) {
     GRID.push({ t: +t.toFixed(3), g: +g.toFixed(3), k: 't' + t.toFixed(2) + '/g' + g.toFixed(2) });
   });
 });
+if (!GRID.some(function (x) { return Math.abs(x.t - BASE_T) < 1e-9 && Math.abs(x.g - BASE_G) < 1e-9; })) {
+  GRID.push({ t: BASE_T, g: BASE_G, k: 't' + BASE_T.toFixed(2) + '/g' + BASE_G.toFixed(2) });  // 기준선 필수
+}
 // 중복 제거
 var seen = {}; GRID = GRID.filter(function (x) { if (seen[x.k]) return false; seen[x.k] = 1; return true; });
 GRID.forEach(function (x) { x.d = declWith(x.t, x.g); });
@@ -115,3 +124,8 @@ rows.forEach(function (r) {
 });
 console.log('\n  현행 = t' + BASE_T.toFixed(2) + '/g' + BASE_G.toFixed(2) + ' (기준선, 차이 0)');
 console.log('  주의: 최댓값 선택은 승자의 저주 — 상위 후보는 반드시 다른 시드로 재확인할 것.');
+// 기계 판독 줄 (ml/merge-xd.py 풀링용) — XD <키> <평균차> <SE> <딜수> <비영딜수>
+rows.forEach(function (r) {
+  if (Math.abs(r.m) < 1e-12 && Math.abs(r.se) < 1e-12) return;   // 기준선 자기 자신
+  console.log('XD ' + r.k + ' ' + r.m.toFixed(4) + ' ' + r.se.toFixed(4) + ' ' + used + ' ' + used);
+});
