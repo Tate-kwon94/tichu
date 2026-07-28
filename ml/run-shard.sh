@@ -12,6 +12,10 @@ OPPC=${OPP_CAND:-exchange}
 WMAIN=${MAIN_WEIGHTS:-shared/weights-super3.json}
 WOPP=${OPP_WEIGHTS:-shared/weights-super.json}
 BUDGET=${BUDGET:-950}
+# 상대 예산을 따로 줄 수 있다(기본=같음). 비대칭 예산은 "탐색을 더 줬을 때 얼마나 강해지는가"를
+# 재는 데 쓴다 — 예산 무한대는 어떤 프라이어 개선으로도 넘을 수 없는 상한이라, 4배 예산이
+# 비기면 프라이어 축(AZ 포함) 전체가 그 위에서 막힌다는 뜻이다.
+BUDGET_OPP=${BUDGET_OPP:-$BUDGET}
 PROCS=${PROCS:-$(nproc)}
 mkdir -p ci-logs
 
@@ -31,8 +35,8 @@ for p in $(seq 0 $((PROCS - 1))); do
   if [ "$S" -gt "$MYEND" ]; then continue; fi
   E=$(( S + SUB - 1 ))
   if [ "$E" -gt "$MYEND" ]; then E=$MYEND; fi
-  TICHU_CAND="$CAND" TICHU_OPP_CAND="$OPPC" \
-  node ml/eval-hybrid.js "$WMAIN" "pu:$WOPP:1.0" "$S" "$E" "$BUDGET" "$BUDGET" puct 1 1.0 \
+  TICHU_CAND="$CAND" TICHU_OPP_CAND="$OPPC" TICHU_REPCAP="${REPCAP:-}" \
+  node ml/eval-hybrid.js "$WMAIN" "pu:$WOPP:1.0" "$S" "$E" "$BUDGET" "$BUDGET_OPP" puct 1 1.0 \
     > "ci-logs/out_${SHARD}_${p}.log" 2>&1 &
 done
 wait

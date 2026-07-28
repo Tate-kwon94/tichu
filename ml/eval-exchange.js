@@ -198,6 +198,7 @@ var STRATS = {
   },
 };
 var NAMES = process.env.TICHU_STRATS ? process.env.TICHU_STRATS.split(',') : Object.keys(STRATS);
+var ECO = process.env.TICHU_ECO || 'base';    // 상대팀(생태계) 전략 — 4단 판정은 'learned'(3단)
 
 function netAction(g, seat, hist) {
   var gm = C.genMoves(g.hands[seat], g.currentCombo, g.wish);
@@ -224,7 +225,9 @@ function playRound(seed, stratName) {
     var s = w[0];
     var a;
     if (g.phase === 'exchange' && !g.exchangeGive[s]) {
-      var f = (s % 2 === 0) ? STRATS[stratName] : STRATS.base;
+      // 상대(생태계) 전략 — 사다리가 올라가면 생태계도 올라간다. 4단 후보를 재려면
+      // 상대는 3단(learned)이어야 한다. TICHU_ECO 미설정이면 종전 그대로 base(1단).
+      var f = (s % 2 === 0) ? STRATS[stratName] : (STRATS[ECO] || STRATS.base);
       a = { type: 'submit_exchange', seat: s, give: f(g, s) };
     } else if (net && g.phase === 'play' && g.turnSeat === s && g.finished.indexOf(s) < 0) {
       a = netAction(g, s, hist);

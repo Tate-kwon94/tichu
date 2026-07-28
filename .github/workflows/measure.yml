@@ -25,8 +25,14 @@ on:
         description: '시드(쌍) 수 — 게임은 ×2'
         default: '480'
       budget:
-        description: '결정당 예산 ms'
+        description: '결정당 예산 ms (후보측)'
         default: '950'
+      budget_opp:
+        description: '상대측 예산 ms (비우면 후보와 동일) — 비대칭이면 "탐색을 더 준 상한" 측정'
+        default: ''
+      repcap:
+        description: 'PUCT 반복 상한(후보측만, 비우면 기본 2000=배포). 배포는 결정 49.8%가 여기 걸려 예산 23.7%를 버린다'
+        default: ''
       bar:
         description: '판정 기준 점수차'
         default: '4.17'
@@ -51,6 +57,8 @@ jobs:
           MAIN_WEIGHTS: ${{ inputs.main_weights }}
           OPP_WEIGHTS: ${{ inputs.opp_weights }}
           BUDGET: ${{ inputs.budget }}
+          BUDGET_OPP: ${{ inputs.budget_opp || inputs.budget }}
+          REPCAP: ${{ inputs.repcap }}
         run: bash ml/run-shard.sh
       - uses: actions/upload-artifact@v4
         with:

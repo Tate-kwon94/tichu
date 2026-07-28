@@ -163,7 +163,12 @@ function hyDecide(g, seat, hist) {
       if (em && hasCand('guardTichu')) em = B.guardPartnerTichu(g, seat, em);
       if (em) return em;
     }
+    // repCap: PUCT 반복 상한. 기본 2000인데 배포 예산 950ms에서 결정의 49.8%가 여기 걸려
+    // 평균 452ms(전체 예산의 23.7%)를 쓰지 않고 끝난다 — 캡 도입 당시 주석의 "2000이 안 걸린다"는
+    // 평균 플레이아웃 비용 기준이었고, 종반처럼 싼 국면에서는 캡이 먼저 걸린다.
+    // TICHU_REPCAP로 풀어 그 낭비가 실력인지 판정한다(2026-07-28 발견).
     var opts = { budgetMs: hyMs, temp: hyTemp, c: (+process.argv[10] || 1.5),
+      repCap: +process.env.TICHU_REPCAP || undefined,
       holdValue: hasCand('holdValue'), oppRead: hasCand('oppRead'),   // ②③
       oracle: ORACLE, oracleMix: ORACLE_MIX,                          // ④
       perfect: process.env.TICHU_PERFECT === '1',                    // 3단 헤드룸: 투시(완전정보)
