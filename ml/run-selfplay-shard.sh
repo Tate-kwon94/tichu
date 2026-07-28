@@ -8,7 +8,9 @@ set -u
 SHARD=${SHARD:?}
 TOTAL=${TOTAL_SHARDS:-20}
 GAMES=${GAMES:-400}
-SEED0=${SEED_START:-3000000}
+# 시드 대역: 지정이 없으면(cron) 실행 번호로 회전시킨다 — 안 그러면 매일 밤 같은 딜을 만든다
+SEED0=${SEED_START:-}
+if [ -z "$SEED0" ]; then SEED0=$(( 3000000 + ${RUN_NUMBER:-0} * 100000 )); fi
 BUDGET=${BUDGET:-600}
 W=${WEIGHTS:-shared/weights-super3.json}
 CVAL=${PUCT_C:-1.0}

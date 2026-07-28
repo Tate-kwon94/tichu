@@ -49,9 +49,10 @@ jobs:
           TOTAL_SHARDS: '20'
           # schedule 이벤트에서는 inputs가 비므로 폴백 필수 (셸 기본값과 이중 안전망)
           GAMES: ${{ inputs.games || '1600' }}
-          # cron은 inputs가 비어 매일 같은 시드 = 같은 딜을 재생성한다. run_number를 대역에
-          # 곱해 밤마다 새 딜을 뽑는다(수동 디스패치는 지정 시드 그대로).
-          SEED_START: ${{ inputs.seed_start || format('{0}', 3000000 + github.run_number * 100000) }}
+          # cron은 inputs가 비어 매일 같은 시드 = 같은 딜을 재생성한다.
+          # 셸에서 RUN_NUMBER로 대역을 회전시킨다(수동 디스패치는 지정 시드 그대로).
+          SEED_START: ${{ inputs.seed_start }}
+          RUN_NUMBER: ${{ github.run_number }}
           BUDGET: ${{ inputs.budget || '950' }}
           WEIGHTS: ${{ inputs.weights || 'shared/weights-super3.json' }}
           PUCT_C: ${{ inputs.puct_c || '1.0' }}
