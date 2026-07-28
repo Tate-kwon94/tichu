@@ -154,13 +154,25 @@ function beats(c, cur) {
 // ---------- 합법 수 생성 ----------
 // 반환: {forced, moves:[{cards, combo}]} — forced=true면 소원 이행 의무(해당 수만 허용)
 function genMoves(hand, cur, wish) {
+  // 손패를 한 번만 훑어 랭크 버킷·무늬 버킷·특수카드 유무를 동시에 만든다.
+  // (종전: filter 1회 + indexOf 4회 + forEach 1회 + Object.keys/map/sort 1회 + 무늬별 전수 스캔 4회)
   var moves = [];
-  var norm = hand.filter(function (id) { return !isSpecial(id); });
-  var hasPH = hand.indexOf('PH') >= 0, hasMJ = hand.indexOf('MJ') >= 0;
-  var hasDG = hand.indexOf('DG') >= 0, hasDR = hand.indexOf('DR') >= 0;
-  var by = {};
-  norm.forEach(function (id) { var r = rankOf(id); (by[r] = by[r] || []).push(id); });
-  var ranks = Object.keys(by).map(Number).sort(function (a, b) { return a - b; });
+  var norm = [], by = new Array(15), bySuit = { S: null, H: null, D: null, C: null };
+  var hasPH = false, hasMJ = false, hasDG = false, hasDR = false;
+  for (var ci = 0; ci < hand.length; ci++) {
+    var cid = hand[ci];
+    if (cid === 'PH') { hasPH = true; continue; }
+    if (cid === 'MJ') { hasMJ = true; continue; }
+    if (cid === 'DG') { hasDG = true; continue; }
+    if (cid === 'DR') { hasDR = true; continue; }
+    norm.push(cid);
+    var cr = CHAR_RANKS[cid[1]];
+    if (by[cr]) by[cr].push(cid); else by[cr] = [cid];
+    var su0 = cid[0];
+    if (bySuit[su0]) bySuit[su0][cr] = cid; else { var m0 = {}; m0[cr] = cid; bySuit[su0] = m0; }
+  }
+  var ranks = [];
+  for (var rr = 2; rr <= 14; rr++) if (by[rr]) ranks.push(rr);   // 이미 오름차순 — 정렬 불필요
   function add(cards, combo) { moves.push({ cards: cards, combo: combo }); }
 
   // 싱글
@@ -277,10 +289,7 @@ function genMoves(hand, cur, wish) {
   // 무늬별 연속 구간을 한 번 훑어 찾는다 — 구간 밖에서는 시작조차 하지 않는다
   // (종전은 무늬마다 9×10×길이 스캔이었다).
   SUITS.forEach(function (su) {
-    var set = null;
-    for (var ni = 0; ni < norm.length; ni++) {
-      if (norm[ni][0] === su) { if (!set) set = {}; set[rankOf(norm[ni])] = norm[ni]; }
-    }
+    var set = bySuit[su];                     // 위에서 한 번에 만들어 둔 무늬 버킷
     if (!set) return;
     for (var fa = 2; fa <= 10; fa++) {
       if (!set[fa]) continue;
@@ -795,15 +804,30 @@ Game.prototype.toJSON = function () {
 };
 
 // 탐색(봇)용 고속 복제 — toJSON/fromJSON의 JSON 문자열 왕복 2회를 피함 (동작 동일)
+/* 깊은 복사. 의미는 종전과 동일하고 경로만 빠르다(2026-07-28 프로파일: 탐색 시간의 12.4%).
+ * ①원시값만 든 배열(손패·더미 등 대부분)은 재귀 없이 채운다
+ * ②for..in(프로토타입 체인 순회) 대신 Object.keys
+ * ③원시값 필드는 재귀 호출 자체를 건너뛴다
+ * 참조 공유가 하나라도 생기면 탐색이 실제 게임을 오염시키므로, 차등 테스트가
+ * 복제본 전 노드를 훑어 "값 동일 + 참조 비공유"를 확인한다(test/diff-clone.js). */
 function deepCopy(v) {
   if (v === null || typeof v !== 'object') return v;
+  var i;
   if (Array.isArray(v)) {
-    var a = new Array(v.length);
-    for (var i = 0; i < v.length; i++) a[i] = deepCopy(v[i]);
+    var n = v.length, a = new Array(n);
+    for (i = 0; i < n; i++) {
+      var e = v[i];
+      if (e !== null && typeof e === 'object') break;      // 중첩 발견 — 여기서부터 재귀
+      a[i] = e;
+    }
+    for (; i < n; i++) a[i] = deepCopy(v[i]);
     return a;
   }
-  var o = {};
-  for (var k in v) o[k] = deepCopy(v[k]);
+  var o = {}, ks = Object.keys(v);
+  for (i = 0; i < ks.length; i++) {
+    var k = ks[i], val = v[k];
+    o[k] = (val !== null && typeof val === 'object') ? deepCopy(val) : val;
+  }
   return o;
 }
 Game.prototype.clone = function () {
