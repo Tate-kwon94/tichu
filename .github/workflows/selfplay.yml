@@ -58,7 +58,11 @@ jobs:
           PUCT_C: ${{ inputs.puct_c || '1.0' }}
           AZ_TEMP: ${{ inputs.az_temp || '0' }}
         run: bash ml/run-selfplay-shard.sh
+      # if: always() 필수 — gen-az는 라운드마다 stdout으로 흘리므로 타임아웃 시점에도
+      # 디스크에는 그때까지의 레코드가 온전히 있다. 조건이 없으면 기본 success()라
+      # timeout-minutes 취소 시 이 스텝이 건너뛰어지고 최대 3시간분이 러너와 함께 폐기된다.
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: selfplay-${{ matrix.shard }}
           path: ci-selfplay/

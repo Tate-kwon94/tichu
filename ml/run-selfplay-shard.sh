@@ -15,6 +15,7 @@ BUDGET=${BUDGET:-600}
 W=${WEIGHTS:-shared/weights-super3.json}
 CVAL=${PUCT_C:-1.0}
 PROCS=${PROCS:-$(nproc)}
+if [ "$PROCS" -gt 16 ]; then PROCS=16; fi     # SLOTS(=16) 상한 — 넘으면 시드 대역이 겹친다
 mkdir -p ci-selfplay
 
 PER=$(( (GAMES + TOTAL - 1) / TOTAL ))
@@ -31,8 +32,11 @@ for p in $(seq 0 $((PROCS - 1))); do
   DONE=$(( p * SUB ))
   if [ "$DONE" -ge "$MYN" ]; then continue; fi
   if [ $((DONE + N)) -gt "$MYN" ]; then N=$(( MYN - DONE )); fi
-  # 시드 대역: 샤드·프로세스마다 완전 분리(게임당 시드 1개, ×8 여유)
-  S=$(( SEED0 + (SHARD * PROCS + p) * PER * 8 ))
+  # 시드 대역: 샤드·프로세스마다 완전 분리. 인덱스에 러너 로컬 nproc(PROCS)를 쓰면
+  # 러너마다 PROCS가 다를 때 대역이 겹쳐 같은 딜을 중복 생성한다(짝지음이 아니라 중복 표본).
+  # 고정 상수 SLOTS로 인덱싱해 러너 사양과 무관하게 분리를 보장한다.
+  SLOTS=16
+  S=$(( SEED0 + (SHARD * SLOTS + p) * PER * 8 ))
   E=$(( S + N - 1 ))
   TICHU_AZ_TEMP="${AZ_TEMP:-0}" \
   node ml/gen-az.js "$W" "$S" "$E" "$BUDGET" "$CVAL" \
@@ -40,6 +44,14 @@ for p in $(seq 0 $((PROCS - 1))); do
 done
 wait
 echo "--- 레코드 수"
-wc -l ci-selfplay/az_${SHARD}_*.jsonl | tail -1
+LINES=$(cat ci-selfplay/az_${SHARD}_*.jsonl 2>/dev/null | wc -l)
+echo "$LINES"
 echo "--- 결정당 시뮬(굶주림 판정)"
 grep -h '^DONE' ci-selfplay/az_${SHARD}_*.log || true
+# 생성이 전면 실패해도 wait는 0을 반환하고 마지막 grep의 || true가 초록으로 덮는다 —
+# 빈 아티팩트로 "성공" 완주하면 다음 세대가 데이터 없이 학습한다. 산출물로 판정한다.
+if [ "$LINES" -lt 1 ]; then
+  echo "!!! shard=$SHARD 레코드 0 — 생성 실패" >&2
+  sed -n '1,40p' ci-selfplay/az_${SHARD}_*.log 2>/dev/null >&2 || true
+  exit 1
+fi

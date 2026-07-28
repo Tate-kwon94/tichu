@@ -136,6 +136,11 @@ def main():
             data, skipped = load_az([f], left, args.minsims)
             if left is not None:
                 left -= len(data)
+            # 스킵 집계는 항상 본다. "유효 0일 때만 출력"이면 99.5%를 버려도 조용히 지나간다.
+            nskip = sum(skipped.values())
+            if nskip and nskip > 0.02 * (len(data) + nskip):
+                print(f"  ⚠ {f}: 유효 {len(data)} / 스킵 {nskip} "
+                      f"({100 * nskip / (len(data) + nskip):.1f}%) {skipped}", flush=True)
             if not data:
                 print(f"  {f}: 유효 레코드 0 (스킵 {skipped})", flush=True)
                 continue
@@ -147,7 +152,8 @@ def main():
                 # 정책: 방문분포 소프트 타깃 교차엔트로피 (hard argmax CE의 일반화)
                 pol = -(pi * logp.masked_fill(~m, 0.0)).sum(1).mean()
                 # 가치: 라운드 결과 회귀 (보조 — 배포 말단 평가를 대체하지 않는다)
-                vloss = nn.functional.mse_loss(val.squeeze(-1), ret)
+                # reshape(-1): 배치가 1이면 squeeze(-1)이 스칼라로 붕괴해 브로드캐스트가 된다
+                vloss = nn.functional.mse_loss(val.reshape(-1), ret.reshape(-1))
                 with torch.no_grad():
                     rlogit, _ = ref(s, a, m)
                     rlogp = nn.functional.log_softmax(rlogit, dim=1)
