@@ -1,0 +1,80 @@
+name: selfplay
+# AZ 자가대전 기보 생성 — 배포 3단 구성(PUCT+선언망+학습교환)이 4좌석 전부 플레이하고
+# 각 결정의 방문 분포를 기록한다. 로컬 맥 하룻밤(~150게임) → CI 한 회(~1,500게임).
+#
+# 약관: 공개 repo 무료 러너는 "프로젝트 개발 활동" 전제. 24/7 상시 점유는 금지선이라
+# 야간 cron 1회(≤3h) + 수동 디스패치만. 상시 그라인딩은 로컬 맥 담당(ml/az.sh).
+
+on:
+  schedule:
+    - cron: '0 17 * * *'   # UTC 17:00 = KST 02:00 — 사용자 취침 시간대 1회
+  workflow_dispatch:
+    inputs:
+      games:
+        description: '총 게임 수 (20샤드 × nproc 분할)'
+        default: '1600'
+      seed_start:
+        description: '시드 시작 (세대마다 대역을 바꿔 데이터 중복 방지)'
+        default: '3000000'
+      budget:
+        description: '결정당 PUCT 예산 ms (배포는 950 — 러너가 느리면 sims/dec로 확인)'
+        default: '600'
+      weights:
+        description: '생성 봇 가중치 (= 현행 배포 프라이어)'
+        default: 'shared/weights-super3.json'
+      puct_c:
+        description: 'PUCT 탐험 상수 (배포 1.0)'
+        default: '1.0'
+      az_temp:
+        description: '뿌리 온도 (0=최다방문 그대로, >0이면 초반 8수 샘플링으로 다양화)'
+        default: '0'
+
+concurrency:
+  group: selfplay
+  cancel-in-progress: false
+
+jobs:
+  shard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 175          # ≤3h 상한 (GitHub 기본 360분이라 명시 필수)
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+    steps:
+      - uses: actions/checkout@v4
+      - name: generate self-play
+        env:
+          SHARD: ${{ matrix.shard }}
+          TOTAL_SHARDS: '20'
+          # schedule 이벤트에서는 inputs가 비므로 폴백 필수 (셸 기본값과 이중 안전망)
+          GAMES: ${{ inputs.games || '1600' }}
+          SEED_START: ${{ inputs.seed_start || '3000000' }}
+          BUDGET: ${{ inputs.budget || '600' }}
+          WEIGHTS: ${{ inputs.weights || 'shared/weights-super3.json' }}
+          PUCT_C: ${{ inputs.puct_c || '1.0' }}
+          AZ_TEMP: ${{ inputs.az_temp || '0' }}
+        run: bash ml/run-selfplay-shard.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: selfplay-${{ matrix.shard }}
+          path: ci-selfplay/
+          if-no-files-found: ignore
+
+  count:
+    needs: shard
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: ci-selfplay
+          merge-multiple: true
+      - run: |
+          echo "### AZ 자가대전 생성" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          wc -l ci-selfplay/*.jsonl | tail -1 >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "결정당 시뮬(굶주림 판정 — 로컬 950ms는 ~1500, 러너 600ms는 ~700 기대):" >> "$GITHUB_STEP_SUMMARY"
+          grep -h '^DONE' ci-selfplay/*.log 2>/dev/null | head -20 >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

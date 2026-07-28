@@ -256,14 +256,22 @@ function create(netOrPath) {
     // 매 시뮬 후보 선택: Q + c·P·√(ΣN)/(1+N). 유망 후보는 깊이 파되 정책확률만큼 탐험도 보장
     // → 강한 신경망일수록 배분이 정확해져 강함이 실력으로 전환(챔피언+의 과확신 함정 회피).
     // 평가는 검증된 휴리스틱 플레이아웃, 최종 선택은 최다 방문(robust).
+    // opts.wantStats: 액션 대신 {action, cands, visits, q, priors, ...}를 반환한다(AZ 자가대전 기록용).
+    // 탐색 코드는 한 줄도 갈라지지 않는다 — 반환문만 다르다. 생성기가 배포 탐색과 다른 코드를 돌면
+    // "배포 시스템 자체를 훈련한다"는 AZ의 전제가 깨지고 전이 문제가 되살아난다(로드맵 §0-보론4).
     decidePuct: function (game, seat, hist, opts) {
       var budget = (opts && opts.budgetMs) || 950;
       var c = (opts && opts.c != null) ? opts.c : 1.5;
       var temp = (opts && opts.temp) ? opts.temp : 1;
+      var stats = !!(opts && opts.wantStats);
       var cc = candsOf(game, seat);
       var cands = cc.cands;
-      if (!cands.length) return { type: 'pass_turn', seat: seat };
-      if (cands.length === 1) return finishAction(game, seat, cands[0]);
+      function ret(action, cs, vis, qq, pr, tn, rp, pk) {
+        return stats ? { action: action, cands: cs, visits: vis, q: qq, priors: pr,
+          totalN: tn, rep: rp, pick: pk, forced: cc.forced } : action;
+      }
+      if (!cands.length) return ret({ type: 'pass_turn', seat: seat }, [], [], [], [], 0, 0, -1);
+      if (cands.length === 1) return ret(finishAction(game, seat, cands[0]), cands, [1], [0], [1], 1, 0, 0);
       var probs = net.probsRecord(net.makeRecord(game, seat, cands, hist));
       if (temp !== 1) {
         var tS = 0, ti;
@@ -325,7 +333,9 @@ function create(netOrPath) {
       for (var j = 0; j < K; j++) {
         if (N[j] > bn || (N[j] === bn && Q[j] > Q[pick])) { bn = N[j]; pick = j; }
       }
-      return finishAction(game, seat, cands[pick]);
+      return ret(finishAction(game, seat, cands[pick]), cands,
+        stats ? Array.prototype.slice.call(N) : null, stats ? Array.prototype.slice.call(Q) : null,
+        stats ? Array.prototype.slice.call(probs) : null, totalN, rep, pick);
     },
 
     // 1-ply 오라클 그리디 (3단 게이트) — 탐색 없이 argmax_a V_oracle(s⊕a).
