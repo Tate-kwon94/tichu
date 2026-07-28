@@ -186,25 +186,22 @@ function genMoves(hand, cur, wish) {
   }
   if (hasDG && !cur) add(['DG'], { type: 'dog', rank: 0, length: 1 });
 
-  // 페어 / 트리플 / 포카드 폭탄
-  ranks.forEach(function (r) {
-    var g = by[r];
-    if (g.length >= 2) add(g.slice(0, 2), { type: 'pair', rank: r, length: 2 });
-    else if (hasPH) add([g[0], 'PH'], { type: 'pair', rank: r, length: 2 });
-    if (g.length >= 3) add(g.slice(0, 3), { type: 'triple', rank: r, length: 3 });
-    else if (g.length === 2 && hasPH) add([g[0], g[1], 'PH'], { type: 'triple', rank: r, length: 3 });
-    if (g.length === 4) add(g.slice(), { type: 'bomb4', rank: r, length: 4 });
-  });
-
-  // 풀하우스 (불사조는 한 곳에만)
-  var trip = [], pr = [];
-  ranks.forEach(function (r) {
-    var g = by[r];
-    if (g.length >= 3) trip.push({ r: r, cards: g.slice(0, 3), ph: false });
-    else if (g.length === 2 && hasPH) trip.push({ r: r, cards: g.slice(0, 2), ph: true });
-    if (g.length >= 2) pr.push({ r: r, cards: g.slice(0, 2), ph: false });
-    else if (hasPH) pr.push({ r: r, cards: [g[0]], ph: true });
-  });
+  // 페어 / 트리플 / 포카드 폭탄 + 풀하우스 재료를 한 번의 순회로 (종전: forEach 2회 + 클로저)
+  var trip = [], pr = [], ri, rk, gg;
+  for (ri = 0; ri < ranks.length; ri++) {
+    rk = ranks[ri]; gg = by[rk];
+    var gl = gg.length;
+    if (gl >= 2) add([gg[0], gg[1]], { type: 'pair', rank: rk, length: 2 });
+    else if (hasPH) add([gg[0], 'PH'], { type: 'pair', rank: rk, length: 2 });
+    if (gl >= 3) add([gg[0], gg[1], gg[2]], { type: 'triple', rank: rk, length: 3 });
+    else if (gl === 2 && hasPH) add([gg[0], gg[1], 'PH'], { type: 'triple', rank: rk, length: 3 });
+    if (gl === 4) add(gg.slice(), { type: 'bomb4', rank: rk, length: 4 });
+    // 풀하우스 재료
+    if (gl >= 3) trip.push({ r: rk, cards: [gg[0], gg[1], gg[2]], ph: false });
+    else if (gl === 2 && hasPH) trip.push({ r: rk, cards: [gg[0], gg[1]], ph: true });
+    if (gl >= 2) pr.push({ r: rk, cards: [gg[0], gg[1]], ph: false });
+    else if (hasPH) pr.push({ r: rk, cards: [gg[0]], ph: true });
+  }
   trip.forEach(function (t) {
     pr.forEach(function (p) {
       if (t.r === p.r || (t.ph && p.ph)) return;
