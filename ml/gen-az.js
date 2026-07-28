@@ -11,7 +11,9 @@
  * 탐색은 shared/hybrid-bot.js decidePuct를 opts.wantStats로 그대로 호출한다 — 복제하지 않는다.
  * 생성기가 배포 탐색과 다른 코드를 돌면 AZ의 전제가 깨진다.
  *
- * 사용: node ml/gen-az.js <weights.json> <seedStart> <seedEnd> [budgetMs=600] [c=1.0] > out.jsonl 2> log
+ * 사용: node ml/gen-az.js <weights.json> <seedStart> <seedEnd> [budgetMs=950] [c=1.0] > out.jsonl 2> log
+ *       예산 기본값은 **배포와 같은 950ms**다 — pi가 "배포 탐색의 결론"이어야 타깃으로서 의미가 있다.
+ *       처리량을 위해 낮추면 그만큼 다른 봇의 결론을 배우는 것이니, 낮출 땐 의식적으로 낮춰라.
  * 환경: TICHU_AZ_DECL(선언망, 기본 shared/weights-declare.json)
  *       TICHU_AZ_EXW(학습교환 선형, 기본 ml/weights-exchange-linear.json)
  *       TICHU_AZ_TEMP(뿌리 탐험 온도, 기본 0 = 방문 최다 그대로. >0이면 방문^(1/T) 샘플링)
@@ -30,7 +32,7 @@ var EXF = require(path.join(__dirname, 'exchange-feats.js'));
 var wPath = process.argv[2] || path.join(__dirname, '..', 'shared', 'weights-super3.json');
 var seedStart = +process.argv[3] || 1;
 var seedEnd = +process.argv[4] || 10;
-var budget = +process.argv[5] || 600;
+var budget = +process.argv[5] || 950;      // 배포와 동일 (rooms.js:294)
 var PUCT_C = process.argv[6] != null ? +process.argv[6] : 1.0;
 var TEMP = +process.env.TICHU_AZ_TEMP || 0;
 var TEMP_MOVES = process.env.TICHU_AZ_TEMP_MOVES != null ? +process.env.TICHU_AZ_TEMP_MOVES : 8;
@@ -64,7 +66,7 @@ function playedCards(g) {
 }
 
 /* 보관용 레코드 — 전 필드 slice. 참조로 담으면 게임 진행에 오염된다(gen-champion 관행) */
-function record(g, seat, cands, pickIdx, pi, pr, sims, hist) {
+function record(g, seat, cands, pickIdx, playIdx, pi, pr, sims, hist) {
   return {
     hist: hist.slice(-12),
     seat: seat,
@@ -83,6 +85,7 @@ function record(g, seat, cands, pickIdx, pi, pr, sims, hist) {
     tgt: g.targetScore,
     cands: cands,
     pick: pickIdx,      // 최다 방문(배포와 동일한 선택) — 기존 train_pilot도 이 파일을 소비 가능
+    play: playIdx,      // 실제로 둔 수(온도 샘플링 시에만 pick과 다름). off-policy 보정용
     pi: pi,             // ★ 방문 분포(합 1) — AZ 소프트 타깃
     pr: pr,             // 생성 시점 프라이어 — KL(pi‖pr)로 "탐색이 프라이어를 얼마나 고쳤나"를 사후 측정
     sims: sims          // 결정당 시뮬 수 — 굶주림 판정용(이게 없으면 데이터 품질을 사후에 못 잼)
@@ -129,12 +132,16 @@ function decide(g, seat, hist, nMove) {
     if (!total) return { act: st.action };                // 시뮬 0회(예산 소진) — 기록하면 잡음
     var pi = [];
     for (i = 0; i < K; i++) pi.push((st.visits[i] > 0 ? st.visits[i] : 0) / total);
-    var pick = st.pick, act = st.action;
-    if (TEMP > 0 && nMove < TEMP_MOVES) {                 // 탐험: 행동만 바꾸고 타깃 pi는 그대로
+    // pick은 항상 최다 방문(= 배포가 실제로 두는 수). 온도 샘플링은 행동만 바꾼다 —
+    // pick을 탐험 표본으로 덮으면 하드라벨 소비자(train_pilot)가 "탐색의 결론"이 아닌
+    // 탐험 잡음을 정답으로 배운다. 실제로 둔 수는 별도 필드(play)로 남긴다.
+    var act = st.action, played = st.pick;
+    if (TEMP > 0 && nMove < TEMP_MOVES) {
       var s2 = sampleByTemp(st.visits, TEMP);
-      if (s2 >= 0 && st.visits[s2] > 0) { pick = s2; act = finishAction(g, seat, st.cands[s2]); }
+      if (s2 >= 0 && st.visits[s2] > 0) { played = s2; act = finishAction(g, seat, st.cands[s2]); }
     }
-    return { act: act, cands: st.cands, pi: pi, pr: st.priors, pick: pick, sims: total };
+    return { act: act, cands: st.cands, pi: pi, pr: st.priors, pick: st.pick,
+      play: played === st.pick ? undefined : played, sims: total };
   }
   if (g.phase === 'exchange' && !g.exchangeGive[seat]) {
     var lg = learnedGive(g, seat);
@@ -144,17 +151,24 @@ function decide(g, seat, hist, nMove) {
   return { act: B.botDecide(g, seat, 'normal') };         // 소원·용 — 배포와 동일한 휴리스틱
 }
 
+/* 버퍼 방출 — 라운드 결과가 확정된 뒤에만 부른다(out이 라벨이다) */
+function flush(g, buf) {
+  var d = g.roundSummary.deltas, n = buf.length;
+  buf.forEach(function (r) {
+    r.out = (r.seat % 2 === 0) ? (d.teamA - d.teamB) : (d.teamB - d.teamA);
+    process.stdout.write(JSON.stringify(r) + '\n');
+  });
+  buf.length = 0;
+  return n;
+}
+
 function playGame(seed) {
   var g = new C.Game({ seed: seed, targetScore: 500 });
   var buf = [], hist = [], nDec = 0, guard = 0, nMove = 0, simSum = 0, simN = 0;
   while (!g.gameOver) {
     if (g.phase === 'roundEnd') {
-      var d = g.roundSummary.deltas;
-      buf.forEach(function (r) {
-        r.out = (r.seat % 2 === 0) ? (d.teamA - d.teamB) : (d.teamB - d.teamA);
-        process.stdout.write(JSON.stringify(r) + '\n');
-      });
-      nDec += buf.length; buf = []; hist = []; nMove = 0;
+      nDec += flush(g, buf);
+      hist = []; nMove = 0;
       g.apply({ type: 'next_round' });
       continue;
     }
@@ -164,7 +178,10 @@ function playGame(seed) {
     var r0 = decide(g, s, hist, nMove);
     var a = r0.act;
     if (!a) throw new Error('no action seed=' + seed);
-    if (r0.pi) { buf.push(record(g, s, r0.cands, r0.pick, r0.pi, r0.pr, r0.sims, hist)); simSum += r0.sims; simN++; nMove++; }
+    if (r0.pi) {
+      buf.push(record(g, s, r0.cands, r0.pick, r0.play, r0.pi, r0.pr, r0.sims, hist));
+      simSum += r0.sims; simN++; nMove++;
+    }
     var rr = g.apply(a);
     if (!rr.ok) throw new Error('rejected seed=' + seed + ' ' + a.type + ' ' + rr.error.code);
     if (a.type === 'pass_turn') hist.push({ s: s, t: 'pass', r: 0, l: 0 });
@@ -175,6 +192,11 @@ function playGame(seed) {
     }
     if (++guard > 30000) throw new Error('guard seed=' + seed);
   }
+  // 마지막 라운드 — 게임을 끝낸 라운드는 phase가 'roundEnd'가 아니라 'gameEnd'라
+  // 위 루프가 flush 없이 탈출한다. 그냥 15%가 아니라 "항상 승부가 갈린 라운드"가 통째로
+  // 빠지므로, 높은 점수대(선언 위험조절이 달라지는 구간)가 학습 데이터에 아예 없게 된다.
+  // (기존 gen-champion.js·gen-teacher.js도 같은 구조 — 과거 자기증류 데이터의 알려진 결함)
+  if (buf.length && g.roundSummary) nDec += flush(g, buf);
   return { dec: nDec, sims: simN ? Math.round(simSum / simN) : 0 };
 }
 

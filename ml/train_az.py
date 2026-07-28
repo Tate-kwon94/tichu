@@ -53,7 +53,10 @@ def load_az(files, cap=None, min_sims=0):
                 if not (0.99 < s < 1.01):
                     skipped["bad"] += 1
                     continue
-                ret = np.float32(np.clip(r["out"] / 100.0, -2.0, 2.0))   # RL·오라클과 같은 스케일
+                # vhead는 train_pilot에서 out/200으로 사전학습됐다(train_pilot.py:127) —
+                # 다른 스케일로 당기면 사전학습분이 무의미해진다. RL의 /100은 vhead가 아니라
+                # 어드밴티지 스케일이라 무관하다.
+                ret = np.float32(np.clip(r["out"] / 200.0, -2.0, 2.0))
                 data.append((tp.enc_state(r),
                              np.stack([tp.enc_action(r, c) for c in cands]),
                              np.asarray(pi, dtype=np.float32) / s,
@@ -99,9 +102,10 @@ def main():
     ap.add_argument("--ent", type=float, default=0.005, help="엔트로피 바닥 계수(조건부)")
     ap.add_argument("--betaout", default=None)
     ap.add_argument("--minsims", type=int, default=0, help="이 시뮬 수 미만 결정은 학습에서 제외")
-    ap.add_argument("--cap", type=int, default=None)
+    ap.add_argument("--cap", type=int, default=None, help="총 레코드 상한(파일당 아님)")
     args = ap.parse_args()
     beta = args.beta
+    files = list(args.train)
 
     dev = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     sd0 = torch.load(args.init, map_location="cpu")
@@ -123,8 +127,15 @@ def main():
                "epi": 0.0, "agree": 0.0, "xent0": 0.0}
         n = 0
         stop = False
-        for f in args.train:
-            data, skipped = load_az([f], args.cap, args.minsims)
+        left = args.cap                      # 총량 상한 — 파일당이 아니라 전체에 걸린다
+        # 파일 순서를 에폭마다 섞는다. cap이 걸릴 때 매번 같은 앞부분만 보는 편향 방지.
+        np.random.shuffle(files)
+        for f in files:
+            if left is not None and left <= 0:
+                break
+            data, skipped = load_az([f], left, args.minsims)
+            if left is not None:
+                left -= len(data)
             if not data:
                 print(f"  {f}: 유효 레코드 0 (스킵 {skipped})", flush=True)
                 continue

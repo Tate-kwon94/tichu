@@ -93,6 +93,16 @@ function playGame(seed) {
     }
     if (++guard > 30000) throw new Error('guard seed=' + seed);
   }
+  // 게임을 끝낸 라운드는 phase가 'gameEnd'라 위 루프가 flush 없이 탈출한다 —
+  // 매 게임의 결승 라운드(높은 점수대)가 통째로 빠져 있었다(2026-07-28 감사에서 발견).
+  if (buf.length && g.roundSummary) {
+    var dz = g.roundSummary.deltas;
+    buf.forEach(function (r) {
+      r.out = (r.seat % 2 === 0) ? (dz.teamA - dz.teamB) : (dz.teamB - dz.teamA);
+      process.stdout.write(JSON.stringify(r) + '\n');
+    });
+    nDec += buf.length;
+  }
   return nDec;
 }
 

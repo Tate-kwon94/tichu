@@ -44,8 +44,10 @@ while [ "$GEN" -lt "$MAXGEN" ]; do
 
   BETA=$( [ -f "$AZ/beta" ] && cat "$AZ/beta" || echo 0.3 )
   echo "$(date '+%H:%M:%S') === gen $GEN: 학습 (방문분포 증류, β=$BETA) ===" >> "$AZ/loop.log"
+  # 학습 창 = 이번 + 직전 세대 + CI 아티팩트. 한 세대분만 쓰면 표본이 얇아 잡음을 배운다.
+  PREV=$((GEN - 1))
   FILES=""
-  for f in "$AZ/g${GEN}_"*.jsonl "$AZ/ci/"*.jsonl; do [ -s "$f" ] && FILES="$FILES $f"; done
+  for f in "$AZ/g${GEN}_"*.jsonl "$AZ/g${PREV}_"*.jsonl "$AZ/ci/"*.jsonl; do [ -s "$f" ] && FILES="$FILES $f"; done
   if [ -z "$FILES" ]; then echo "생성 실패 — 중단" >> "$AZ/loop.log"; exit 1; fi
   $PY $ML/train_az.py ${=FILES} --init "$AZ/cur.pt" --ref "$REFPT" --out "$AZ/gen$GEN.pt" \
     --epochs 2 --beta $BETA --kltarget $KLTARGET --betaout "$AZ/beta" --lr 5e-5 >> "$AZ/loop.log" 2>&1
