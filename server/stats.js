@@ -52,8 +52,9 @@ var MAX_PENDING = 200;
  *  실력 우위가 승률로 잘 안 옮겨진다.)
  */
 var ELO_START = 1000;
-var BOT_ELO = { easy: 700, normal: 850, hard: 950, super: 1000, super2: 1070, super3: 1100, devil: 1400 };
+var BOT_ELO = { easy: 700, normal: 850, hard: 950, super: 1000, super2: 1070, super3: 1100, super4: 1130, devil: 1400 };
 // super3 앵커 근거: 승단전 1,920게임 명목 승률 54.1% vs 2단 → Elo 차 +29 ≈ 1070+30.
+// super4 앵커 근거: 3단 대비 예산 2배 + 교환 MLP. 승단전 점수차 기준 통과 → 같은 폭(+30)으로 1130.
 var ELO_DAILY_CAP = 60;          // 하루 변동 상한 — 몰아치기 방지
 /* 봇전 가중치 — 승패 '양쪽 모두' 절반. 대칭이어야 하는 이유:
  * 승리만 깎으면 억제가 아니라 편향이 된다(실측: 2단과 동급인 사람이 955로 수렴 →

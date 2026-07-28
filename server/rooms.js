@@ -40,6 +40,25 @@ function getExch3() {
   }
   return exch3;
 }
+// 4단 학습 교환(MLP) — 40만 딜 짝지음에서 3단 선형 대비 +1.03±0.15 (6.9σ)
+var exch4 = null, exch4Failed = false;
+function getExch4() {
+  if (exch4 || exch4Failed) return exch4;
+  /* 로드 실패는 반드시 여기서 삼킨다. 예외가 botAct 밖으로 나가면 그 방은 봇 타이머 없이
+   * 영구 정지한다(botAct 진입부에서 clearBotTimer를 이미 한 뒤라 재스케줄 안전망보다 위에서 터진다).
+   * 실패하면 null을 돌려 호출부가 3단 선형 → 2단 규칙 순으로 폴백하게 한다. */
+  try {
+    var INF4 = require(path.join(__dirname, '..', 'shared', 'exchange-infer.js'));
+    var w4 = JSON.parse(require('fs').readFileSync(
+      path.join(__dirname, '..', 'shared', 'weights-exchange4.json'), 'utf8'));
+    exch4 = INF4.create(w4);
+    console.log('[tichu] 4단 교환(MLP) 로드 완료');
+  } catch (e) {
+    exch4Failed = true;                       // 매 교환마다 재시도하지 않는다
+    console.error('[tichu] 4단 교환 가중치 로드 실패 — 3단 선형으로 폴백:', e.message);
+  }
+  return exch4;
+}
 // 선언(티츄/라지) 신경망 — 66만 라운드 학습, EV 보정 임계
 var declNet = null;
 function getDeclare() {
@@ -273,8 +292,19 @@ function botAct(room, seat) {
   // 1단(super)·2단(super2)은 동결. 2단 = 1단 코드 그대로 + 교환에서 마작·개 보유(⑦).
   // 검증(2026-07-24): 950ms 240판 짝지음 +22.56점/라운드 → 점수차 66.2%. 사용자가 점수차 기준 확정.
   // 이득은 원투 완주 보너스에서 나온다(카드 점수 기여 −0.20). 1단(super) 경로는 한 줄도 건드리지 않음.
-  var isSuper = room.botLevel === 'super' || room.botLevel === 'super2' || room.botLevel === 'super3';
+  var isDan4 = room.botLevel === 'super4';
+  var isSuper = room.botLevel === 'super' || room.botLevel === 'super2' ||
+                room.botLevel === 'super3' || isDan4;
   var isDan3 = room.botLevel === 'super3';
+  /* 탐색량 — 단을 가르는 축(2026-07-28 사용자 결정 A안).
+   * 코어 최적화로 같은 950ms에 시뮬이 3배 늘었는데 그대로 두면 전 단이 같이 강해져 계단이 사라진다.
+   * 두 장치를 함께 쓴다:
+   *   ① 예산: 4단만 2배(1900ms). 기기 속도와 무관하게 최소 2배 탐색이 보장된다.
+   *   ② 상한: 1~3단은 종전 2000에 묶어 동결(빠른 기기에서 조용히 강해지는 것 방지).
+   * 상한만으로는 부족하다 — Render 0.1 CPU에서는 캡보다 예산이 먼저 걸려(실측 810시뮬)
+   * 3단·4단이 동일해진다. 그래서 예산 축이 필수다. */
+  var DAN_REPCAP = isDan4 ? 1e9 : 2000;
+  var DAN_BUDGET = isDan4 ? 1900 : 950;
   var superTichu = isSuper && p && p.isBot && g.phase === 'play' && g.turnSeat === seat &&
     !g.playedFirst[seat] && !g.tichu[seat] && getDeclare().tichu(g.hands[seat]);
   var heurTichu = !isSuper && p && p.isBot && room.botLevel !== 'easy' && g.phase === 'play' &&
@@ -285,15 +315,22 @@ function botAct(room, seat) {
     a = { type: 'call_grand', seat: seat, call: getDeclare().grand(g.hands[seat]) }; // 선언 신경망(동결)
   } else if (room.botLevel === 'super2' && g.phase === 'exchange' && !g.exchangeGive[seat]) {
     a = { type: 'submit_exchange', seat: seat, give: B.botExchange(g, seat, { keepSpecials: true }) }; // ⑦ 2단 전용
+  } else if (isDan4 && g.phase === 'exchange' && !g.exchangeGive[seat]) {
+    // 4단 교환: MLP 랭커 — 40만 딜에서 3단 선형 대비 +1.03±0.15(6.9σ). 실패 시 3단 선형으로 폴백
+    var e4 = getExch4();                                   // 실패 시 null
+    a = { type: 'submit_exchange', seat: seat,
+          give: (e4 && e4.give(g, seat)) || getExch3().give(g, seat) ||
+                B.botExchange(g, seat, { keepSpecials: true }) };
   } else if (isDan3 && g.phase === 'exchange' && !g.exchangeGive[seat]) {
     // 3단 교환: 손패별 학습 교환(선형) — 게이트 +2.18±0.75, 후보 부족 시 2단 규칙 폴백
     a = { type: 'submit_exchange', seat: seat,
           give: getExch3().give(g, seat) || B.botExchange(g, seat, { keepSpecials: true }) };
-  } else if (isDan3 && g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
-    // 3단 플레이: swa 가중치 PUCT (승단전 통과 조합 그대로 — 추가 모듈 없음)
-    a = getSuper3Bot().decidePuct(g, seat, room.playHist || [], { budgetMs: 950, c: 1.0 });
+  } else if ((isDan3 || isDan4) && g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
+    // 3·4단 플레이: 같은 swa 가중치 PUCT. 차이는 탐색 상한뿐 — 4단만 예산을 다 쓴다.
+    a = getSuper3Bot().decidePuct(g, seat, room.playHist || [],
+      { budgetMs: DAN_BUDGET, c: 1.0, repCap: DAN_REPCAP });
   } else if (isSuper && g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
-    a = getSuperBot().decidePuct(g, seat, room.playHist || [], { budgetMs: 950, c: 1.0 });
+    a = getSuperBot().decidePuct(g, seat, room.playHist || [], { budgetMs: 950, c: 1.0, repCap: DAN_REPCAP });
     // 파트너 티츄 가드(B.guardPartnerTichu)는 사용자 결정으로 2단에 미적용 — 3단 전용 재료
     // (2단은 검증된 상태 그대로 동결. 배신 현상은 3단에서 해소 예정)
   } else {
@@ -663,7 +700,7 @@ function handle(player, a) {
       // 실사용(점심 소모임)에선 동시 봇게임이 드물어 허용; 트래픽이 늘면 워커 분리가 답.
       // 1단 = v6 신경망(폭2배) + PUCT(c=1.0) 하이브리드. v3-챔피언+ 직접 58.8%로 이겨 승격(고수950 대비 ~60%)
       // 악마(상대 패 열람)는 사람에게 불공정 → 제외
-      room.botLevel = ['easy', 'normal', 'hard', 'super', 'super2', 'super3'].indexOf(a.botLevel) >= 0 ? a.botLevel : 'normal';
+      room.botLevel = ['easy', 'normal', 'hard', 'super', 'super2', 'super3', 'super4'].indexOf(a.botLevel) >= 0 ? a.botLevel : 'normal';
       room.playHist = [];
       room.game = new C.Game({ targetScore: ts });
       room.gver++;

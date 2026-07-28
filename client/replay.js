@@ -14,7 +14,7 @@ var $ = function (sel) { return document.querySelector(sel); };
 var root = document.getElementById('rv');
 
 var DAN_LABEL = { '': '?', easy: '쉬움', normal: '보통', hard: '고수', devil: '악마',
-  super: '1단', super2: '2단', super3: '3단' };
+  super: '1단', super2: '2단', super3: '3단', super4: '4단' };
 var PHASE_LABEL = { grand: '라지 선언', exchange: '교환', play: '플레이' };
 
 var S = {
