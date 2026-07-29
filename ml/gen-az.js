@@ -34,6 +34,8 @@ var seedStart = +process.argv[3] || 1;
 var seedEnd = +process.argv[4] || 10;
 var budget = +process.argv[5] || 950;      // 배포와 동일 (rooms.js:294)
 var PUCT_C = process.argv[6] != null ? +process.argv[6] : 1.0;
+var REPCAP = +process.env.TICHU_REPCAP || 1e9;   // 기본 무제한 — 예산이 유일한 제약이 되게 한다
+                                              // (기본 2000이면 예산을 늘려도 2,000시뮬에서 끊긴다)
 var TEMP = +process.env.TICHU_AZ_TEMP || 0;
 var TEMP_MOVES = process.env.TICHU_AZ_TEMP_MOVES != null ? +process.env.TICHU_AZ_TEMP_MOVES : 8;
 
@@ -124,7 +126,10 @@ function decide(g, seat, hist, nMove) {
     return { act: { type: 'call_tichu', seat: seat } };
   }
   if (g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
-    var st = hy.decidePuct(g, seat, hist, { budgetMs: budget, c: PUCT_C, wantStats: true });
+    /* repCap을 반드시 넘긴다 — 기본값 2000이라 예산을 아무리 늘려도 2,000시뮬에서 끊긴다.
+     * (실제로 3800ms 생성이 950ms와 똑같은 2,000시뮬로 나온 적이 있다.) */
+    var st = hy.decidePuct(g, seat, hist,
+      { budgetMs: budget, c: PUCT_C, repCap: REPCAP, wantStats: true });
     var K = st.cands.length;
     if (K < 2) return { act: st.action };                 // 강제수 — 학습 신호 없음
     var total = 0, i;
