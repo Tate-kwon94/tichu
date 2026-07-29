@@ -119,7 +119,8 @@ var TM = process.env.TICHU_TM === '1'
   ? { bank: TM_BANK, checkAt: +process.env.TICHU_TM_AT || 0.35,
       stopShare: +process.env.TICHU_TM_SHARE || 0.90,
       stopMargin: +process.env.TICHU_TM_MARGIN || 0.55,
-      maxExtra: +process.env.TICHU_TM_EXTRA || 1.5 }
+      maxExtra: process.env.TICHU_TM_EXTRA === undefined ? 1.5 : +process.env.TICHU_TM_EXTRA,
+      hardCap: +process.env.TICHU_TM_CAP || 0 }
   : undefined;
 /* 상대(기준선)측 프로파일 — 사다리가 올라가면 기준선도 올라간다.
  *   3단 승단전: TICHU_OPP_CAND=exchange (상대 = 동결 2단)
@@ -271,7 +272,7 @@ function playGame(seed, hyTeamA) {
       var dd = g.roundSummary.deltas;
       GPTS += hyTeamA ? (dd.teamA - dd.teamB) : (dd.teamB - dd.teamA);
       GROUNDS++;
-      hist = []; g.apply({ type: 'next_round' }); continue;
+      hist = []; TM_BANK.ms = 0; g.apply({ type: 'next_round' }); continue;  // 은행은 라운드마다 리셋
     }
     var w = g.waitingOn();
     if (!w.length) break;

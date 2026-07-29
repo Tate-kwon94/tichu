@@ -319,9 +319,14 @@ function create(netOrPath) {
             if (tm.bank) tm.bank.ms += (deadline - Date.now());   // 남은 예산을 은행에
             break;                                                 // 확정 — 여기서 끊는다
           }
-          // 접전이면 은행에서 꺼내 예산을 늘린다(은행이 비어 있으면 그대로)
+          /* 접전이면 은행에서 꺼내 예산을 늘린다. maxExtra=0이면 상한 없음 —
+           * 어려운 한 수에 은행 전액을 쏟는다(사람이 결정적 국면에서 장고하는 것과 같다).
+           * 총량은 은행이 스스로 제한한다(아낀 만큼만 쓴다) — 라운드 총 시간은 균등 배분 이하.
+           * hardCap은 UX·서버 보호용 절대 벽(한 수가 몇 초씩 걸리면 게임이 멈춘 것처럼 보인다). */
           if (tm.bank && tm.bank.ms > 0) {
-            var extra = Math.min(tm.bank.ms, budget * (tm.maxExtra || 1.5));
+            var lim = tm.maxExtra ? budget * tm.maxExtra : tm.bank.ms;
+            var extra = Math.min(tm.bank.ms, lim);
+            if (tm.hardCap) extra = Math.min(extra, Math.max(0, tm.hardCap - budget));
             tm.bank.ms -= extra;
             deadline += extra;
           }
