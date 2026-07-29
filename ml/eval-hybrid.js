@@ -112,6 +112,15 @@ function learnedGive(g, seat) {
 var CAND = (process.env.TICHU_CAND || '').split(',').filter(Boolean);
 if (CAND.indexOf('wishCount') >= 0) globalThis.__TICHU_WISH_COUNT = 1; // 카운팅 소원(주봇 탐색 경로 전체)
 function hasCand(f) { return CAND.indexOf(f) >= 0; }
+/* 시간 배분 — TICHU_TM=1이면 후보 봇만 켠다. 은행은 라운드 경계에서 리셋한다
+ * (라운드를 넘겨 이월하면 "예산 총량이 같다"는 공정성 전제가 깨진다). */
+var TM_BANK = { ms: 0 };
+var TM = process.env.TICHU_TM === '1'
+  ? { bank: TM_BANK, checkAt: +process.env.TICHU_TM_AT || 0.35,
+      stopShare: +process.env.TICHU_TM_SHARE || 0.90,
+      stopMargin: +process.env.TICHU_TM_MARGIN || 0.55,
+      maxExtra: +process.env.TICHU_TM_EXTRA || 1.5 }
+  : undefined;
 /* 상대(기준선)측 프로파일 — 사다리가 올라가면 기준선도 올라간다.
  *   3단 승단전: TICHU_OPP_CAND=exchange (상대 = 동결 2단)
  * 비어 있으면 상대는 1단. */
@@ -173,7 +182,8 @@ function hyDecide(g, seat, hist) {
       oracle: ORACLE, oracleMix: ORACLE_MIX,                          // ④
       perfect: process.env.TICHU_PERFECT === '1',                    // 3단 헤드룸: 투시(완전정보)
       playout: process.env.TICHU_PLAYOUT || undefined,                // 'neural'=신경망 플레이아웃
-      oppK: +process.env.TICHU_OPPK || 0 };                          // 상대-연속 편향 제거(첫 K수)
+      oppK: +process.env.TICHU_OPPK || 0,                            // 상대-연속 편향 제거(첫 K수)
+      tm: TM };                                                       // 시간 배분(확정 결정 조기중단 → 접전에 몰아주기)
     var act = mode === 'oracle1ply' ? hy.decideOracle1ply(g, seat, hist, opts)  // 3단 게이트: 1-ply 오라클
       : mode === 'sh' ? hy.decideSH(g, seat, hist, opts)   // ⑤ Sequential Halving 뿌리 배분
       : mode === 'puct' ? hy.decidePuct(g, seat, hist, opts)

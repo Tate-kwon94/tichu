@@ -297,7 +297,35 @@ function create(netOrPath) {
       // 반복 상한: 플레이아웃(≈650µs)은 950ms에 1,500회라 2000이 안 걸리지만,
       // 오라클(≈100µs)은 2000에서 예산 대부분을 남기고 멈춘다. 오라클일 때만 상한을 푼다(1단 경로 불변).
       var repCap = (opts && opts.repCap) || (oracle ? 40000 : 2000);
+      /* 시간 배분(opts.tm) — 결정의 57%가 사실상 확정인데(방문 pmax≥0.95) 균등하게 예산을 다 쓴다.
+       * 확정된 결정은 일찍 끊고, 아낀 시간을 접전 결정(pmax<0.8, 전체의 19%)에 몰아준다.
+       * 엔진 최적화와 달리 이건 단별로 켜고 끌 수 있어 상대 재료가 된다.
+       * tm = { bank: {ms:0}, checkAt: 0.35, stopShare: 0.90, stopMargin: 0.55, maxExtra: 1.5 }
+       *   checkAt   예산의 이 비율 시점에 조기중단 판정
+       *   stopShare 선두 후보 방문 점유가 이 값 이상이면 확정으로 보고 중단
+       *   stopMargin 선두-2위 점유 차가 이 값 이상이어야 중단(둘 다 만족해야)
+       *   maxExtra  접전이면 은행에서 예산의 이 배수까지 추가로 꺼내 쓴다 */
+      var tm = (opts && opts.tm) || null;
+      var tmCheck = tm ? Date.now() + budget * (tm.checkAt || 0.35) : 0;
+      var tmDone = false, tmStart = Date.now();
       while (Date.now() < deadline && rep < repCap) {
+        if (tm && !tmDone && Date.now() >= tmCheck) {
+          tmDone = true;
+          var s1 = -1, s2 = -1;                       // 1·2위 방문수
+          for (var ti = 0; ti < K; ti++) { var nv = N[ti]; if (nv > s1) { s2 = s1; s1 = nv; } else if (nv > s2) s2 = nv; }
+          var share = totalN > 0 ? s1 / totalN : 0;
+          var marg = totalN > 0 ? (s1 - Math.max(0, s2)) / totalN : 0;
+          if (share >= (tm.stopShare || 0.90) && marg >= (tm.stopMargin || 0.55)) {
+            if (tm.bank) tm.bank.ms += (deadline - Date.now());   // 남은 예산을 은행에
+            break;                                                 // 확정 — 여기서 끊는다
+          }
+          // 접전이면 은행에서 꺼내 예산을 늘린다(은행이 비어 있으면 그대로)
+          if (tm.bank && tm.bank.ms > 0) {
+            var extra = Math.min(tm.bank.ms, budget * (tm.maxExtra || 1.5));
+            tm.bank.ms -= extra;
+            deadline += extra;
+          }
+        }
         // PUCT 선택
         var best = -1, bv = -Infinity, sqrtT = Math.sqrt(totalN + 1);
         for (var i = 0; i < K; i++) {

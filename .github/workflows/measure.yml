@@ -30,6 +30,9 @@ on:
       budget_opp:
         description: '상대측 예산 ms (비우면 후보와 동일) — 비대칭이면 "탐색을 더 준 상한" 측정'
         default: ''
+      tm:
+        description: '시간 배분(확정 결정 조기중단→접전에 몰아주기): 1이면 후보만 켬'
+        default: ''
       repcap:
         description: 'PUCT 반복 상한(후보측만, 비우면 기본 2000=배포). 배포는 결정 49.8%가 여기 걸려 예산 23.7%를 버린다'
         default: ''
@@ -59,6 +62,7 @@ jobs:
           BUDGET: ${{ inputs.budget }}
           BUDGET_OPP: ${{ inputs.budget_opp || inputs.budget }}
           REPCAP: ${{ inputs.repcap }}
+          TM: ${{ inputs.tm }}
         run: bash ml/run-shard.sh
       - uses: actions/upload-artifact@v4
         with:
