@@ -9,6 +9,11 @@ PAIRS=${PAIRS:-480}
 SEED0=${SEED_START:-20001}
 CAND=${CAND:-exchange}
 OPPC=${OPP_CAND:-exchange}
+# 시간배분 파라미터: "checkAt,stopShare,stopMargin,maxExtra,hardCap" (maxExtra=0 = 상한 없음)
+TM_AT=""; TM_SHARE=""; TM_MARGIN=""; TM_EXTRA=""; TM_CAP=""
+if [ -n "${TM_PARAMS:-}" ]; then
+  IFS=',' read -r TM_AT TM_SHARE TM_MARGIN TM_EXTRA TM_CAP <<< "$TM_PARAMS"
+fi
 WMAIN=${MAIN_WEIGHTS:-shared/weights-super3.json}
 WOPP=${OPP_WEIGHTS:-shared/weights-super.json}
 BUDGET=${BUDGET:-950}
