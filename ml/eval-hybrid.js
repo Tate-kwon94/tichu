@@ -184,7 +184,8 @@ function hyDecide(g, seat, hist) {
       perfect: process.env.TICHU_PERFECT === '1',                    // 3단 헤드룸: 투시(완전정보)
       playout: process.env.TICHU_PLAYOUT || undefined,                // 'neural'=신경망 플레이아웃
       oppK: +process.env.TICHU_OPPK || 0,                            // 상대-연속 편향 제거(첫 K수)
-      tm: TM };                                                       // 시간 배분(확정 결정 조기중단 → 접전에 몰아주기)
+      tm: TM,
+      outBonus: +process.env.TICHU_OUTBONUS || 0 };   // 5단 후보: 완주 순서 가중                                                       // 시간 배분(확정 결정 조기중단 → 접전에 몰아주기)
     var act = mode === 'oracle1ply' ? hy.decideOracle1ply(g, seat, hist, opts)  // 3단 게이트: 1-ply 오라클
       : mode === 'sh' ? hy.decideSH(g, seat, hist, opts)   // ⑤ Sequential Halving 뿌리 배분
       : mode === 'puct' ? hy.decidePuct(g, seat, hist, opts)

@@ -36,6 +36,9 @@ on:
       tm_params:
         description: '시간배분 파라미터 CSV: checkAt,stopShare,stopMargin,maxExtra,hardCap (maxExtra=0 무제한)'
         default: ''
+      outbonus:
+        description: '완주 순서 가중(5단 후보). 0=끔, 권장 8'
+        default: ''
       repcap:
         description: 'PUCT 반복 상한(후보측만, 비우면 기본 2000=배포). 배포는 결정 49.8%가 여기 걸려 예산 23.7%를 버린다'
         default: ''
@@ -66,6 +69,7 @@ jobs:
           BUDGET_OPP: ${{ inputs.budget_opp || inputs.budget }}
           REPCAP: ${{ inputs.repcap }}
           TM: ${{ inputs.tm }}
+          OUTBONUS: ${{ inputs.outbonus }}
           TM_PARAMS: ${{ inputs.tm_params }}
         run: bash ml/run-shard.sh
       - uses: actions/upload-artifact@v4

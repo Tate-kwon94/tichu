@@ -133,7 +133,25 @@ function create(netOrPath) {
   // 왜: 리프가 "상대가 보통봇처럼 약하게 응수한다"고 가정하는데 실전 상대는 탐색봇이다.
   // clairvoyance는 "내 은닉정보" 축을 닫았지만 "상대 정책 강도" 축은 직교라 미폐쇄였다.
   // 전체를 신경망으로 두면 201배 느리므로, 반격이 결정되는 초반 몇 수만 정확히 둔다.
-  function heuristicPlayout(sim, seat, deadline, oppK, hist) {
+  /* outBonus(5단 후보): 평가 목표에 "먼저 나가기" 가중을 더한다.
+   * 왜: 로드맵은 평가기를 통째로 교체하거나(가치망, 실패) 플레이아웃 정책을 강화하는 것만(−0.02)
+   * 시도했고, **평가 목표 자체를 재설계**한 적이 없다. holdValue(카드 아끼기)가 같은 종류의
+   * 의도적 편향이었고 체감을 올린 전례가 있다.
+   * 라운드 점수차는 완주 순서를 원투(+200)로만 본다 — 원투가 아니어도 먼저 나가는 것은
+   * 상대에게 잔여 카드를 넘기지 않는다는 가치가 있는데 그 부분이 평가에 약하게 들어간다.
+   * out[s] = 완주 등수(0=1등), 미완주는 4로 본다. 내 팀 등수합이 작을수록 가산. */
+  function outTerm(sim, seat, w) {
+    if (!w) return 0;
+    var fin = sim.finished || [], mine = 0, opp = 0;
+    for (var s = 0; s < 4; s++) {
+      var idx = fin.indexOf(s);
+      var rank = idx >= 0 ? idx : 4;                 // 미완주는 최하위 취급
+      if ((s % 2) === (seat % 2)) mine += rank; else opp += rank;
+    }
+    return (opp - mine) * w;                          // 우리 팀이 먼저 나갔을수록 +
+  }
+
+  function heuristicPlayout(sim, seat, deadline, oppK, hist, outW) {
     var myTeamEven = seat % 2 === 0;
     var guard = 0, nOpp = 0, h = (oppK && hist) ? hist.slice() : null;
     while (sim.phase !== 'roundEnd' && sim.phase !== 'gameEnd') {
@@ -171,7 +189,8 @@ function create(netOrPath) {
     }
     if (!sim.roundSummary) return 0;
     var d = sim.roundSummary.deltas;
-    return myTeamEven ? d.teamA - d.teamB : d.teamB - d.teamA;
+    var base = myTeamEven ? d.teamA - d.teamB : d.teamB - d.teamA;
+    return base + outTerm(sim, seat, outW);
   }
 
   // 고급 자원 낭비 페널티(원점수 단위) — 푼돈 트릭에 폭탄·용·A를 쓰는 수 억제.
@@ -292,6 +311,7 @@ function create(netOrPath) {
       var oracle = (opts && opts.oracle) || null;
       var oracleMix = (opts && opts.oracleMix) || 0;
       var oppK = (opts && opts.oppK) || 0;   // 상대-연속 편향 제거: 상대 첫 K수만 신경망
+      var outW = (opts && opts.outBonus) || 0;  // 5단 후보: 완주 순서 가중(평가 목표 재설계)
       var Q = new Float64Array(K), N = new Int32Array(K), totalN = 0;
       var deadline = Date.now() + budget, rep = 0;
       // 반복 상한: 플레이아웃(≈650µs)은 950ms에 1,500회라 2000이 안 걸리지만,
@@ -349,7 +369,7 @@ function create(netOrPath) {
             ? oracleEval(sim, seat, oracle)
             : (opts && opts.playout === 'neural')
               ? Math.max(-2, Math.min(2, neuralPlayout(sim, seat, h2, deadline) / 100))
-              : Math.max(-2, Math.min(2, heuristicPlayout(sim, seat, deadline, oppK, h2) / 100));
+              : Math.max(-2, Math.min(2, heuristicPlayout(sim, seat, deadline, oppK, h2, outW) / 100));
           if (holdV) v += holdV[best]; // 강카드 소비 억제 = 아끼기
           Q[best] += (v - Q[best]) / (N[best] + 1); // 러닝 평균
           N[best]++; totalN++;

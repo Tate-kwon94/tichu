@@ -40,7 +40,7 @@ for p in $(seq 0 $((PROCS - 1))); do
   if [ "$S" -gt "$MYEND" ]; then continue; fi
   E=$(( S + SUB - 1 ))
   if [ "$E" -gt "$MYEND" ]; then E=$MYEND; fi
-  TICHU_CAND="$CAND" TICHU_OPP_CAND="$OPPC" TICHU_REPCAP="${REPCAP:-}" TICHU_TM="${TM:-}" \
+  TICHU_CAND="$CAND" TICHU_OPP_CAND="$OPPC" TICHU_REPCAP="${REPCAP:-}" TICHU_TM="${TM:-}" TICHU_OUTBONUS="${OUTBONUS:-}" \
   TICHU_TM_AT="${TM_AT:-}" TICHU_TM_SHARE="${TM_SHARE:-}" TICHU_TM_MARGIN="${TM_MARGIN:-}" \
   TICHU_TM_EXTRA="${TM_EXTRA:-}" TICHU_TM_CAP="${TM_CAP:-}" \
   node ml/eval-hybrid.js "$WMAIN" "pu:$WOPP:1.0" "$S" "$E" "$BUDGET" "$BUDGET_OPP" puct 1 1.0 \
