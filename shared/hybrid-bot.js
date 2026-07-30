@@ -426,9 +426,21 @@ function create(netOrPath) {
       // "CPU가 굶어서 탐색이 아예 일어나지 않았다"를 구분할 수 없다.
       if (globalThis.__TICHU_STAT) { globalThis.__TICHU_STAT.sims += rep; globalThis.__TICHU_STAT.dec++; }
       // 최종: 최다 방문 (동률이면 Q 높은 쪽)
+      /* 최종 선택 규칙(5단 후보). 현행은 최다 방문(robust) — AlphaZero 관행이다.
+       * 미시도 대안: 충분히 방문된 후보 중 Q 최대. 방문수는 "탐험이 여기를 많이 봤다"는
+       * 뜻이고 Q는 "실제로 좋았다"는 뜻인데, 둘이 갈릴 때 현행은 전자를 택한다.
+       * 단조 변환이 아니라 선택 규칙 자체를 바꾸므로 발현이 보장된다(winCtx 교훈).
+       * pickRule='maxq': N ≥ minFrac × maxN 인 후보 중 Q 최대. 방문 적은 요행을 배제. */
       var pick = 0, bn = -1;
       for (var j = 0; j < K; j++) {
         if (N[j] > bn || (N[j] === bn && Q[j] > Q[pick])) { bn = N[j]; pick = j; }
+      }
+      if (opts && opts.pickRule === 'maxq' && bn > 0) {
+        var minN = bn * (opts.minFrac || 0.25), bq = -Infinity, pq = pick;
+        for (var j2 = 0; j2 < K; j2++) {
+          if (N[j2] >= minN && Q[j2] > bq) { bq = Q[j2]; pq = j2; }
+        }
+        pick = pq;
       }
       return ret(finishAction(game, seat, cands[pick]), cands,
         stats ? Array.prototype.slice.call(N) : null, stats ? Array.prototype.slice.call(Q) : null,
