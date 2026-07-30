@@ -100,7 +100,11 @@ function trackHist(room, act, g) {
   recordStats(room, g);
   GLOG.onAction(room, act, g);   // 기보 — 실패해도 게임에 영향 없음(내부 try)
   if (!room.playHist) room.playHist = [];
-  if (act.type === 'next_round' || act.type === 'restart') { room.playHist = []; return; }
+  if (act.type === 'next_round' || act.type === 'restart') {
+    room.playHist = [];
+    if (room._tmBank) room._tmBank.ms = 0;   // 시간배분 은행 — 라운드 넘겨 이월 금지
+    return;
+  }
   if (act.type === 'pass_turn') room.playHist.push({ s: act.seat, t: 'pass', r: 0, l: 0 });
   else if (act.type === 'play_cards') {
     var la = g.lastAction;
@@ -304,7 +308,15 @@ function botAct(room, seat) {
    * 상한만으로는 부족하다 — Render 0.1 CPU에서는 캡보다 예산이 먼저 걸려(실측 810시뮬)
    * 3단·4단이 동일해진다. 그래서 예산 축이 필수다. */
   var DAN_REPCAP = isDan4 ? 1e9 : 2000;
-  var DAN_BUDGET = isDan4 ? 1900 : 950;
+  /* 4단 = 3단 정책 + 예산 3800ms. 승단전 2,880게임 3표본 풀링 +4.97±1.12 (53.6%),
+   * 이질성 Q=3.55(임계 5.99) — 표본 일관. 기준 +4.17 통과.
+   * 시간배분(tm)은 강도 기여가 0이지만(예산 위에서 −0.63) 체감 시간을 되사준다:
+   * 3800ms 균등은 한 수 체감 4.5초, tm을 얹으면 중앙값 2.0초(현행 3단 1.7초와 비슷).
+   * 초과 달성분(6000ms·카운팅 소원)은 5단 이상 재료로 보류(사용자 지시). */
+  var DAN_BUDGET = isDan4 ? 3800 : 950;
+  var DAN_TM = isDan4 ? { bank: (room._tmBank = room._tmBank || { ms: 0 }),
+                          checkAt: 0.35, stopShare: 0.90, stopMargin: 0.55,
+                          maxExtra: 0, hardCap: 5000 } : null;
   var superTichu = isSuper && p && p.isBot && g.phase === 'play' && g.turnSeat === seat &&
     !g.playedFirst[seat] && !g.tichu[seat] && getDeclare().tichu(g.hands[seat]);
   var heurTichu = !isSuper && p && p.isBot && room.botLevel !== 'easy' && g.phase === 'play' &&
@@ -328,7 +340,7 @@ function botAct(room, seat) {
   } else if ((isDan3 || isDan4) && g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
     // 3·4단 플레이: 같은 swa 가중치 PUCT. 차이는 탐색 상한뿐 — 4단만 예산을 다 쓴다.
     a = getSuper3Bot().decidePuct(g, seat, room.playHist || [],
-      { budgetMs: DAN_BUDGET, c: 1.0, repCap: DAN_REPCAP });
+      { budgetMs: DAN_BUDGET, c: 1.0, repCap: DAN_REPCAP, tm: DAN_TM });
   } else if (isSuper && g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
     a = getSuperBot().decidePuct(g, seat, room.playHist || [], { budgetMs: 950, c: 1.0, repCap: DAN_REPCAP });
     // 파트너 티츄 가드(B.guardPartnerTichu)는 사용자 결정으로 2단에 미적용 — 3단 전용 재료

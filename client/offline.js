@@ -11,8 +11,9 @@ function create(handlers, resume, botLevel, superHy, declNet, exchNet, exchNet4)
   botLevel = ['easy', 'normal', 'hard', 'super', 'super2', 'super3', 'super4'].indexOf(botLevel) >= 0 ? botLevel : 'normal';
   if (['super', 'super2', 'super3', 'super4'].indexOf(botLevel) >= 0 && !superHy) botLevel = 'hard'; // 가중치 미로드 시 안전 폴백
   var hist = []; // 라운드 내 플레이 이력 — 초고수 신경망 입력
+  var tmBank = { ms: 0 };  // 시간배분 은행 — 라운드마다 리셋(이월하면 예산 총량 전제가 깨진다)
   function trackHist(a) {
-    if (a.type === 'next_round' || a.type === 'restart') { hist = []; return; }
+    if (a.type === 'next_round' || a.type === 'restart') { hist = []; tmBank.ms = 0; return; }
     if (a.type === 'pass_turn') hist.push({ s: a.seat, t: 'pass', r: 0, l: 0 });
     else if (a.type === 'play_cards') {
       var la = game.lastAction;
@@ -72,7 +73,11 @@ function create(handlers, resume, botLevel, superHy, declNet, exchNet, exchNet4)
        * ①예산: 4단만 2배(1800ms) — 기기 속도와 무관하게 최소 2배 보장
        * ②상한: 1~3단은 종전 2000에 묶어 동결 */
       var DAN_REPCAP = isDan4 ? 1e9 : 2000;
-      var DAN_BUDGET = isDan4 ? 1800 : 900;
+      /* 4단 = 3단 정책 + 예산 3800ms(승단전 2,880게임 +4.97±1.12 통과).
+       * tm은 강도 기여 0이지만 체감을 4.5초→2.0초로 되사준다. */
+      var DAN_BUDGET = isDan4 ? 3800 : 900;
+      var DAN_TM = isDan4 ? { bank: tmBank, checkAt: 0.35, stopShare: 0.90,
+                              stopMargin: 0.55, maxExtra: 0, hardCap: 5000 } : null;
       var wantTichu = game.phase === 'play' && game.turnSeat === s && !game.playedFirst[s] && !game.tichu[s] &&
         (isSuper && declNet ? declNet.tichu(game.hands[s])
           : (botLevel !== 'easy' && !isSuper && B.botTichu(game.hands[s])));
@@ -95,9 +100,9 @@ function create(handlers, resume, botLevel, superHy, declNet, exchNet, exchNet4)
         a = { type: 'submit_exchange', seat: s, give: lg3 || B.botExchange(game, s, { keepSpecials: true }) };
       } else if ((isDan3 || isDan4) && game.phase === 'play' && game.turnSeat === s && game.finished.indexOf(s) < 0) {
         // 3·4단 플레이: 같은 swa 가중치 PUCT. 차이는 탐색 상한뿐 — 4단만 예산을 다 쓴다.
-        a = superHy.decidePuct(game, s, hist, { budgetMs: DAN_BUDGET, c: 1.0, repCap: DAN_REPCAP });
+        a = superHy.decidePuct(game, s, hist, { budgetMs: DAN_BUDGET, c: 1.0, repCap: DAN_REPCAP, tm: DAN_TM });
       } else if (isSuper && game.phase === 'play' && game.turnSeat === s && game.finished.indexOf(s) < 0) {
-        a = superHy.decidePuct(game, s, hist, { budgetMs: DAN_BUDGET, c: 1.0, repCap: DAN_REPCAP });
+        a = superHy.decidePuct(game, s, hist, { budgetMs: DAN_BUDGET, c: 1.0, repCap: DAN_REPCAP, tm: DAN_TM });
       } else {
         a = B.botDecide(game, s, isSuper ? 'normal' : botLevel);
       }
