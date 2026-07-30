@@ -140,6 +140,49 @@ function create(netOrPath) {
    * 라운드 점수차는 완주 순서를 원투(+200)로만 본다 — 원투가 아니어도 먼저 나가는 것은
    * 상대에게 잔여 카드를 넘기지 않는다는 가치가 있는데 그 부분이 평가에 약하게 들어간다.
    * out[s] = 완주 등수(0=1등), 미완주는 4로 본다. 내 팀 등수합이 작을수록 가산. */
+  /* winCtx(5단 후보): 목적함수를 "라운드 점수 최대화"에서 "게임 승리"로 바꾼다.
+   * 발견: 평가기가 game score를 전혀 보지 않는다 — 480:100이든 0:0이든 똑같이 둔다.
+   * 그런데 게임의 목적은 목표점수(500/1000)에 먼저 닿는 것이다. 라운드 점수는 대리 지표일 뿐이고,
+   * 그 대리성이 깨지는 구간이 실재한다:
+   *   - 우리가 목표에 근접 → 적게 이겨도 게임이 끝난다(추가 점수는 가치 0)
+   *   - 상대가 목표에 근접 → 우리 점수보다 상대 저지가 우선(막지 못하면 게임이 끝난다)
+   * w=1이면 라운드 종료 후 실제로 게임이 끝나는지를 보고 승/패에 ±BIG을 준다. */
+  /* winCtx(5단 후보 v3): 점수 맥락에 따라 **내 득점과 상대 실점의 가중을 비대칭으로** 만든다.
+   *
+   * v1(이진: 이 라운드로 게임이 끝나는가)과 v2(연속 남은거리)는 발현이 0이었다.
+   * 원인이 명확했다 — 둘 다 라운드 점수차의 **단조 변환**이라 모든 후보를 같이 밀어올리고
+   * 순위를 못 바꾼다(게이트 0.3σ, Q는 0.40씩 움직이는데 수는 안 바뀜).
+   * 순위를 바꾸려면 라운드 점수차의 함수가 아니어야 한다 → 팀별 델타를 분리해 다르게 가중한다.
+   *
+   * 왜 비대칭이 옳은가: 상대가 목표에 근접했으면 상대의 10점이 우리 10점보다 위험하다
+   * (그 10점이 게임을 끝낼 수 있다). 반대도 성립한다. 현행 평가는 둘을 같은 무게로 본다.
+   * 목표까지 남은 라운드 수 r = (목표−현재)/50 로 급함을 재고, 급할수록 가중을 올린다.
+   *
+   * ★ 결론(2026-07-30): **닫힘.** v1(이진)·v2(연속 남은거리)·v3(비대칭 가중) 셋 다 발현 0
+   * (게이트 −0.9~+0.9σ, 점수맥락 0:0 / 400:250 / 250:400 / 440:440 전부).
+   * 기전: 한 라운드의 카드 점수는 100점 제로섬이라 myD + opD ≈ 상수다. 그래서 팀 델타를
+   * 어떻게 선형 재가중해도 결과는 myD의 스케일링 + 거의 상수 = **단조 변환**이고,
+   * 단조 변환은 후보 순위를 바꾸지 못한다(Q는 0.10~0.40 움직이는데 수는 안 바뀜).
+   * 비단조가 되는 곳은 목표 초과 시 포화뿐이고, 그건 후보들이 목표 통과 여부에서
+   * 갈릴 때만 생겨 매우 드물다. → 점수 맥락 축은 라운드 평가 수준에서 여지가 거의 없다. */
+  function winTerm(sim, seat, w) {
+    if (!w || !sim.roundSummary) return 0;
+    var t = sim.targetScore;
+    if (!t || t > 100000) return 0;                   // 상한 없는 측정용 게임은 제외
+    var even = (seat % 2 === 0);
+    var d = sim.roundSummary.deltas;
+    var myD = even ? d.teamA : d.teamB;
+    var opD = even ? d.teamB : d.teamA;
+    // 라운드 시작 시점 점수 = 종료 점수 − 이 라운드 델타
+    var myBefore = (even ? sim.scores[0] : sim.scores[1]) - myD;
+    var opBefore = (even ? sim.scores[1] : sim.scores[0]) - opD;
+    var rMy = Math.max(0.5, (t - myBefore) / 50);      // 남은 라운드 수(하한 0.5)
+    var rOp = Math.max(0.5, (t - opBefore) / 50);
+    var wMy = 1 + w / rMy;                            // 우리가 급하면 내 득점 가중↑
+    var wOp = 1 + w / rOp;                            // 상대가 급하면 상대 실점 가중↑
+    return (wMy * myD - wOp * opD) - (myD - opD);      // 기준(대칭)과의 차이만 더한다
+  }
+
   function outTerm(sim, seat, w) {
     if (!w) return 0;
     var fin = sim.finished || [], mine = 0, opp = 0;
@@ -151,7 +194,7 @@ function create(netOrPath) {
     return (opp - mine) * w;                          // 우리 팀이 먼저 나갔을수록 +
   }
 
-  function heuristicPlayout(sim, seat, deadline, oppK, hist, outW) {
+  function heuristicPlayout(sim, seat, deadline, oppK, hist, outW, winW) {
     var myTeamEven = seat % 2 === 0;
     var guard = 0, nOpp = 0, h = (oppK && hist) ? hist.slice() : null;
     while (sim.phase !== 'roundEnd' && sim.phase !== 'gameEnd') {
@@ -190,7 +233,7 @@ function create(netOrPath) {
     if (!sim.roundSummary) return 0;
     var d = sim.roundSummary.deltas;
     var base = myTeamEven ? d.teamA - d.teamB : d.teamB - d.teamA;
-    return base + outTerm(sim, seat, outW);
+    return base + outTerm(sim, seat, outW) + winTerm(sim, seat, winW);
   }
 
   // 고급 자원 낭비 페널티(원점수 단위) — 푼돈 트릭에 폭탄·용·A를 쓰는 수 억제.
@@ -312,6 +355,7 @@ function create(netOrPath) {
       var oracleMix = (opts && opts.oracleMix) || 0;
       var oppK = (opts && opts.oppK) || 0;   // 상대-연속 편향 제거: 상대 첫 K수만 신경망
       var outW = (opts && opts.outBonus) || 0;  // 5단 후보: 완주 순서 가중(평가 목표 재설계)
+      var winW = (opts && opts.winCtx) || 0;    // 5단 후보: 게임 승리 목적함수(점수 맥락 반영)
       var Q = new Float64Array(K), N = new Int32Array(K), totalN = 0;
       var deadline = Date.now() + budget, rep = 0;
       // 반복 상한: 플레이아웃(≈650µs)은 950ms에 1,500회라 2000이 안 걸리지만,
@@ -369,7 +413,7 @@ function create(netOrPath) {
             ? oracleEval(sim, seat, oracle)
             : (opts && opts.playout === 'neural')
               ? Math.max(-2, Math.min(2, neuralPlayout(sim, seat, h2, deadline) / 100))
-              : Math.max(-2, Math.min(2, heuristicPlayout(sim, seat, deadline, oppK, h2, outW) / 100));
+              : Math.max(-2, Math.min(2, heuristicPlayout(sim, seat, deadline, oppK, h2, outW, winW) / 100));
           if (holdV) v += holdV[best]; // 강카드 소비 억제 = 아끼기
           Q[best] += (v - Q[best]) / (N[best] + 1); // 러닝 평균
           N[best]++; totalN++;
