@@ -259,6 +259,14 @@ function lowestLead(moves, protect, ctx) {
   }
   return best;
 }
+/* botPlay의 임의 상수 — 한 번도 스윕된 적이 없다. 롤아웃 정책의 품질이 곧 평가기 품질이고
+ * 평가기가 병목임이 실측됐으므로(같은 40세계에서 롤아웃 정책만 바꿔도 최선수가 62% 갈림),
+ * 이 상수들이 5단의 후보다. globalThis.__TICHU_PP로만 바뀐다 = 배포 기본값 불변. */
+function PP(k, d) {
+  var o = (typeof globalThis !== 'undefined') && globalThis.__TICHU_PP;
+  return (o && o[k] != null) ? o[k] : d;
+}
+
 function botPlay(game, seat) {
   var hand = game.hands[seat];
   var n = hand.length;
@@ -302,20 +310,21 @@ function botPlay(game, seat) {
   if (finishers.length && !partnerWinning) return finishers[0];
   if (partnerWinning) {
     if (finishers.length && n <= 4) return finishers[0];
-    if (cur.rank >= 10 || isBomb(cur.type)) return null; // 파트너가 세게 이기는 중 — 양보
+    if (cur.rank >= PP('yieldRank', 10) || isBomb(cur.type)) return null; // 파트너가 세게 이기는 중 — 양보
   }
   var nonBomb = moves.filter(function (m) { return !isBomb(m.combo.type); });
   var trickPts = sumPoints(game.trickPile);
   if (nonBomb.length) {
     var pick = cheapest(nonBomb, true, protect);
     // 푼돈 트릭에 비싼 카드 아끼기
-    if (pick.combo.rank >= 14 && trickPts < 5 && n > 7 && !partnerWinning) return null;
+    if (pick.combo.rank >= PP('saveRank', 14) && trickPts < PP('savePts', 5) &&
+        n > PP('saveHand', 7) && !partnerWinning) return null;
     return pick;
   }
   // 폭탄만 가능할 때: 점수가 크거나, 상대 티츄 저지, 또는 막판이면 사용
   var w = game.lastPlayerSeat;
   var enemyTichu = w >= 0 && teamOf(w) !== teamOf(seat) && game.tichu[w] > 0;
-  if (trickPts >= 13 || enemyTichu || n <= 6) return cheapest(moves, false, protect);
+  if (trickPts >= PP('bombPts', 13) || enemyTichu || n <= PP('bombHand', 6)) return cheapest(moves, false, protect);
   return null;
 }
 
