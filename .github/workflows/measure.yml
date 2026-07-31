@@ -42,6 +42,9 @@ on:
       fastpol:
         description: '롤아웃 정책 증류본 경로(5단 후보). 예: ml/weights-fastpol.json'
         default: ''
+      oppk:
+        description: '상대-연속 편향 제거: 상대 첫 K수만 신경망(닫힌경로 재심사)'
+        default: ''
       repcap:
         description: 'PUCT 반복 상한(후보측만, 비우면 기본 2000=배포). 배포는 결정 49.8%가 여기 걸려 예산 23.7%를 버린다'
         default: ''
@@ -74,6 +77,7 @@ jobs:
           TM: ${{ inputs.tm }}
           OUTBONUS: ${{ inputs.outbonus }}
           FASTPOL: ${{ inputs.fastpol }}
+          OPPK: ${{ inputs.oppk }}
           TM_PARAMS: ${{ inputs.tm_params }}
         run: bash ml/run-shard.sh
       - uses: actions/upload-artifact@v4
