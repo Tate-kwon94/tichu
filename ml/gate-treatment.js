@@ -22,6 +22,10 @@ var B = require(path.join(__dirname, '..', 'shared', 'bots.js'));
 var HY = require(path.join(__dirname, '..', 'shared', 'hybrid-bot.js'));
 
 var TREAT = JSON.parse(process.argv[2] || '{}');
+if (process.env.TICHU_FASTPOL) {                        // 경량 롤아웃 정책도 처치로 취급
+  var FPM = require(path.join(__dirname, '..', 'shared', 'fast-policy.js'));
+  TREAT.fastPol = FPM.create(JSON.parse(require('fs').readFileSync(process.env.TICHU_FASTPOL, 'utf8')));
+}
 var NPOS = +process.argv[3] || 40;
 var BUD = +process.argv[4] || 350;
 var SEED0 = +process.argv[5] || 3001;

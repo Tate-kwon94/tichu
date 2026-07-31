@@ -10,5 +10,7 @@ ml/*.json
 !ml/weights-exchange-*.json
 # 4단 RL 후보(승단전용) — CI 러너가 체크아웃해 쓴다
 !ml/weights-rl4-*.json
+# 롤아웃 정책 증류본(5단 후보) — CI 러너가 체크아웃해 쓴다
+!ml/weights-fastpol.json
 ml/*.jsonl
 ml/data/

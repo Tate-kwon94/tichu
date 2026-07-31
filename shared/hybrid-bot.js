@@ -194,7 +194,11 @@ function create(netOrPath) {
     return (opp - mine) * w;                          // 우리 팀이 먼저 나갔을수록 +
   }
 
-  function heuristicPlayout(sim, seat, deadline, oppK, hist, outW, winW) {
+  /* 롤아웃 정책 주입(5단 후보). fastPol이 있으면 카드 결정만 그것으로 두고 나머지는 휴리스틱.
+   * 근거: 평가기가 병목임이 실측됐다(같은 40세계에서 보통봇 vs 정책망이 62% 다른 수를 고름).
+   * 정책망은 658배 비싸 못 쓰지만, 선형 증류본은 롤아웃 비용이 오히려 9% 낮으면서(228 vs 251µs)
+   * 효과의 대부분을 재현한다(불일치 50% vs 정책망 62%). */
+  function heuristicPlayout(sim, seat, deadline, oppK, hist, outW, winW, fastPol) {
     var myTeamEven = seat % 2 === 0;
     var guard = 0, nOpp = 0, h = (oppK && hist) ? hist.slice() : null;
     while (sim.phase !== 'roundEnd' && sim.phase !== 'gameEnd') {
@@ -219,7 +223,22 @@ function create(netOrPath) {
           continue;
         }
       }
-      var a = B.botDecide(sim, s3, 'normal'); if (!a) break;
+      var a = null;
+      if (fastPol && sim.phase === 'play' && sim.turnSeat === s3 && sim.finished.indexOf(s3) < 0) {
+        var gmf = C.genMoves(sim.hands[s3], sim.currentCombo, sim.wish);
+        var cdf = gmf.moves.map(function (m) { return { c: m.cards, t: m.combo.type, r: m.combo.rank, l: m.combo.length }; });
+        if (sim.currentCombo && !gmf.forced) cdf.push({ t: 'pass' });
+        if (cdf.length) {
+          var cf = cdf[fastPol.pick(sim, s3, cdf)];
+          a = cf.t === 'pass' ? { type: 'pass_turn', seat: s3 } : { type: 'play_cards', seat: s3, cards: cf.c };
+          if (cf.c && cf.c.indexOf('MJ') >= 0) {
+            var wif = B.botWish(sim.hands[s3].filter(function (x) { return cf.c.indexOf(x) < 0; }), null);
+            if (wif) a.wish = wif;
+          }
+        }
+      }
+      if (!a) a = B.botDecide(sim, s3, 'normal');
+      if (!a) break;
       if (!sim.apply(a).ok) break;
       if (h) {
         if (a.type === 'pass_turn') h.push({ s: s3, t: 'pass', r: 0, l: 0 });
@@ -355,7 +374,8 @@ function create(netOrPath) {
       var oracleMix = (opts && opts.oracleMix) || 0;
       var oppK = (opts && opts.oppK) || 0;   // 상대-연속 편향 제거: 상대 첫 K수만 신경망
       var outW = (opts && opts.outBonus) || 0;  // 5단 후보: 완주 순서 가중(평가 목표 재설계)
-      var winW = (opts && opts.winCtx) || 0;    // 5단 후보: 게임 승리 목적함수(점수 맥락 반영)
+      var winW = (opts && opts.winCtx) || 0;
+      var fastPol = (opts && opts.fastPol) || null;  // 5단 후보: 롤아웃 정책 증류본    // 5단 후보: 게임 승리 목적함수(점수 맥락 반영)
       var Q = new Float64Array(K), N = new Int32Array(K), totalN = 0;
       var deadline = Date.now() + budget, rep = 0;
       // 반복 상한: 플레이아웃(≈650µs)은 950ms에 1,500회라 2000이 안 걸리지만,
@@ -413,7 +433,7 @@ function create(netOrPath) {
             ? oracleEval(sim, seat, oracle)
             : (opts && opts.playout === 'neural')
               ? Math.max(-2, Math.min(2, neuralPlayout(sim, seat, h2, deadline) / 100))
-              : Math.max(-2, Math.min(2, heuristicPlayout(sim, seat, deadline, oppK, h2, outW, winW) / 100));
+              : Math.max(-2, Math.min(2, heuristicPlayout(sim, seat, deadline, oppK, h2, outW, winW, fastPol) / 100));
           if (holdV) v += holdV[best]; // 강카드 소비 억제 = 아끼기
           Q[best] += (v - Q[best]) / (N[best] + 1); // 러닝 평균
           N[best]++; totalN++;

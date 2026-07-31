@@ -112,6 +112,12 @@ function learnedGive(g, seat) {
 var CAND = (process.env.TICHU_CAND || '').split(',').filter(Boolean);
 if (CAND.indexOf('wishCount') >= 0) globalThis.__TICHU_WISH_COUNT = 1; // 카운팅 소원(주봇 탐색 경로 전체)
 function hasCand(f) { return CAND.indexOf(f) >= 0; }
+/* 롤아웃 정책 증류본 — TICHU_FASTPOL=<가중치 경로>면 후보 봇의 플레이아웃에만 적용 */
+var FASTPOL = null;
+if (process.env.TICHU_FASTPOL) {
+  var FPM = require(path.join(__dirname, '..', 'shared', 'fast-policy.js'));
+  FASTPOL = FPM.create(JSON.parse(require('fs').readFileSync(process.env.TICHU_FASTPOL, 'utf8')));
+}
 /* 시간 배분 — TICHU_TM=1이면 후보 봇만 켠다. 은행은 라운드 경계에서 리셋한다
  * (라운드를 넘겨 이월하면 "예산 총량이 같다"는 공정성 전제가 깨진다). */
 var TM_BANK = { ms: 0 };
@@ -185,7 +191,8 @@ function hyDecide(g, seat, hist) {
       playout: process.env.TICHU_PLAYOUT || undefined,                // 'neural'=신경망 플레이아웃
       oppK: +process.env.TICHU_OPPK || 0,                            // 상대-연속 편향 제거(첫 K수)
       tm: TM,
-      outBonus: +process.env.TICHU_OUTBONUS || 0 };   // 5단 후보: 완주 순서 가중                                                       // 시간 배분(확정 결정 조기중단 → 접전에 몰아주기)
+      outBonus: +process.env.TICHU_OUTBONUS || 0,     // 5단 후보: 완주 순서 가중
+      fastPol: FASTPOL };                             // 5단 후보: 롤아웃 정책 증류본                                                       // 시간 배분(확정 결정 조기중단 → 접전에 몰아주기)
     var act = mode === 'oracle1ply' ? hy.decideOracle1ply(g, seat, hist, opts)  // 3단 게이트: 1-ply 오라클
       : mode === 'sh' ? hy.decideSH(g, seat, hist, opts)   // ⑤ Sequential Halving 뿌리 배분
       : mode === 'puct' ? hy.decidePuct(g, seat, hist, opts)
