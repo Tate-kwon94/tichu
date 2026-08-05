@@ -328,7 +328,7 @@ var FIELDS = ['targetScore', 'scores', 'round', 'phase', 'hands', '_restDeck', '
   'trick', 'trickPile', 'currentCombo', 'lastPlayerSeat', 'turnSeat', 'leaderSeat', 'wish',
   'tichu', 'grandAnswered', 'playedFirst', 'exchangeGive', 'exchangeReceived', 'finished',
   'firstOutSeat', 'dragonChooser', '_pendingRoundEnd', 'roundSummary', 'gameOver',
-  'winnerTeam', 'lastAction', 'history'];
+  'winnerTeam', 'lastAction', 'history', 'rerolls', 'rerollPenalty'];
 
 function Game(opts) {
   opts = opts || {};
@@ -342,6 +342,11 @@ function Game(opts) {
   this.winnerTeam = null;
   this.lastAction = null;
   this.history = []; // 라운드별 점수 변동 누적
+  /* 리롤 — 팀당 게임 전체에서 2회. 8장만 보고(라지 선언 단계) 하면 −30, 14장 다 보고 하면 −50.
+   * 덱 56장이 전부 나뉘어 있어 한 사람만 다시 받는 건 불가능하므로 전원 재딜한다.
+   * 페널티는 리롤한 팀 점수에서 차감하고, 라지 선언은 새 패이므로 전부 초기화된다. */
+  this.rerolls = [0, 0];          // 팀별 사용 횟수
+  this.rerollPenalty = [0, 0];    // 팀별 누적 페널티(라운드 정산 때 반영)
   this._startRound();
 }
 
@@ -380,6 +385,7 @@ Game.prototype.apply = function (a) {
     case 'play_cards': return this._playCards(a.seat, a.cards, a.wish);
     case 'pass_turn': return this._pass(a.seat);
     case 'give_dragon': return this._giveDragon(a.seat, a.toSeat);
+    case 'reroll': return this._reroll(a.seat);
     case 'next_round': return this._nextRound();
     case 'restart': return this._restart();
     default: return err('BAD_REQUEST', '알 수 없는 액션: ' + a.type);
@@ -387,6 +393,50 @@ Game.prototype.apply = function (a) {
 };
 
 Game.prototype._badSeat = function (s) { return !(s === 0 || s === 1 || s === 2 || s === 3); };
+
+/* ---------- 리롤 ----------
+ * 사양(2026-08-05): 팀당 게임 전체 2회. 라지 선언 단계(8장만 봄) −30, 교환 단계(14장 다 봄) −50.
+ * 페널티는 리롤한 팀에 누적되고 라운드 정산 때 반영된다.
+ * 덱 56장이 전부 나뉘어 있어 한 사람만 다시 받는 건 불가능 → 전원 재딜.
+ * 새 패이므로 라지 선언·응답은 전부 초기화하고 라지 단계부터 다시 한다. */
+Game.prototype.REROLL_MAX = 2;
+Game.prototype.rerollCost = function (phase) { return phase === 'grand' ? 30 : 50; };
+
+Game.prototype.canReroll = function (s) {
+  if (this._badSeat(s)) return false;
+  if (this.phase !== 'grand' && this.phase !== 'exchange') return false;
+  if (this.phase === 'exchange' && this.exchangeGive[s]) return false;   // 이미 교환 제출했으면 불가
+  return this.rerolls[teamOf(s)] < this.REROLL_MAX;
+};
+
+Game.prototype._reroll = function (s) {
+  if (this._badSeat(s)) return err('BAD_REQUEST', '좌석 오류');
+  if (this.phase !== 'grand' && this.phase !== 'exchange')
+    return err('BAD_PHASE', '리롤은 라지 선언·교환 단계에서만 가능합니다');
+  if (this.phase === 'exchange' && this.exchangeGive[s])
+    return err('BAD_PHASE', '교환을 제출한 뒤에는 리롤할 수 없습니다');
+  var t = teamOf(s);
+  if (this.rerolls[t] >= this.REROLL_MAX)
+    return err('REROLL_LIMIT', '리롤을 모두 사용했습니다 (팀당 ' + this.REROLL_MAX + '회)');
+
+  var cost = this.rerollCost(this.phase);
+  this.rerolls[t]++;
+  this.rerollPenalty[t] += cost;
+
+  // 전원 재딜 — 라운드 번호는 그대로(같은 라운드를 다시 하는 것)
+  var deck = shuffled(makeDeck(), this.rng);
+  this.hands = [0, 1, 2, 3].map(function (p) { return sortHand(deck.slice(p * 8, p * 8 + 8)); });
+  this._restDeck = deck.slice(32);
+  // 새 패이므로 선언·교환 상태를 전부 초기화하고 라지 단계로 되돌린다
+  this.tichu = [0, 0, 0, 0];
+  this.grandAnswered = [false, false, false, false];
+  this.playedFirst = [false, false, false, false];
+  this.exchangeGive = [null, null, null, null];
+  this.exchangeReceived = [[], [], [], []];
+  this.phase = 'grand';
+  this.lastAction = { seat: s, kind: 'reroll', cost: cost, team: t };
+  return okRes();
+};
 
 Game.prototype._callGrand = function (s, call) {
   if (this._badSeat(s)) return err('BAD_REQUEST', '좌석 오류');
@@ -676,6 +726,11 @@ Game.prototype._endRound = function (o) {
     cardPoints = { teamA: cp[0], teamB: cp[1] };
     dA += cp[0]; dB += cp[1];
   }
+  /* 리롤 페널티 — 이 라운드에 쓴 만큼만 차감하고 리셋한다(다음 라운드로 이월 금지).
+   * 리롤은 같은 라운드를 다시 하는 것이라, 비용은 그 라운드 정산에 실린다. */
+  var rrA = this.rerollPenalty[0], rrB = this.rerollPenalty[1];
+  dA -= rrA; dB -= rrB;
+  this.rerollPenalty = [0, 0];
   this.scores[0] += dA;
   this.scores[1] += dB;
   var gameOver = false, winnerTeam = null;
@@ -688,6 +743,7 @@ Game.prototype._endRound = function (o) {
     oneTwoTeam: oneTwoTeam,
     cardPoints: cardPoints,
     bonuses: bonuses,
+    rerollPenalty: { teamA: rrA, teamB: rrB },
     deltas: { teamA: dA, teamB: dB },
     totals: { teamA: this.scores[0], teamB: this.scores[1] },
     finishOrder: this.finished.slice(),

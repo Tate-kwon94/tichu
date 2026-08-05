@@ -1550,6 +1550,32 @@ function init() {
   setInterval(requestRooms, 4000);
   render();
 }
-if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
-else init();
+/* 모바일 키보드 대응 — 채팅 입력 시 화면이 밀렸다가 복귀가 어긋나는 문제(사용자 보고).
+ *
+ * 원인: position:fixed는 **레이아웃** 뷰포트 기준이라 키보드가 뜨면 하단 고정 패널이
+ * 키보드 뒤로 숨는다. 그러면 브라우저가 포커스된 입력을 보이려고 페이지를 통째로
+ * 밀어올리고, 키보드가 닫힐 때 그 스크롤이 정확히 되돌아오지 않는다.
+ *
+ * 해법: visualViewport로 키보드 높이를 재서 --kb에 넣는다. 패널이 스스로 키보드 위에
+ * 자리잡으면 브라우저가 페이지를 밀 이유가 없어진다. 지원 안 하는 환경은 --kb=0으로 종전과 동일.
+ */
+function trackKeyboard() {
+  var vv = window.visualViewport;
+  if (!vv) return;                                   // 미지원 브라우저: 종전 동작 그대로
+  var root = document.documentElement;
+  function sync() {
+    // 레이아웃 뷰포트 대비 시각 뷰포트가 줄어든 만큼이 키보드(+주소창) 높이
+    var kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    root.style.setProperty('--kb', (kb > 40 ? kb : 0) + 'px');   // 40px 미만은 주소창 흔들림
+    root.style.setProperty('--vvh', vv.height + 'px');
+    // 키보드가 페이지를 밀어올렸으면 되돌린다 — 패널이 이미 키보드 위에 있으므로 스크롤이 불필요
+    if (kb > 40 && window.scrollY !== 0) window.scrollTo(0, 0);
+  }
+  vv.addEventListener('resize', sync);
+  vv.addEventListener('scroll', sync);
+  sync();
+}
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { init(); trackKeyboard(); });
+else { init(); trackKeyboard(); }
 })();
