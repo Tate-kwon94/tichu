@@ -978,7 +978,9 @@ function renderMeArea() {
     html += '</div>';
     html += '<div class="actions">' +
       (you.canCallTichu ? tichuBtnHtml() : '') +
-      '<button class="btn primary" data-act="ex-confirm"' + (state.exch.every(Boolean) ? '' : ' disabled') + '>' + STR.exchangeConfirm + '</button></div>';
+      '<button class="btn primary" data-act="ex-confirm"' + (state.exch.every(Boolean) ? '' : ' disabled') + '>' + STR.exchangeConfirm + '</button></div>' +
+      (g.you.canReroll ? '<div class="row" style="margin-top:6px"><button class="btn ghost" style="width:100%" data-act="reroll">' +
+        STR.rerollBtn + ' (−' + g.you.rerollCost + ', ' + STR.rerollLeft + ' ' + g.you.rerollLeft + ')</button></div>' : '');
     html += '<div class="comboHint">' + (state.tichuArmed ? STR.confirmHint : STR.exchangeTitle) + '</div>';
   } else if (g.phase === 'exchange') {
     html += '<div class="comboHint">' + STR.exchangeWaiting + '</div>';
@@ -1023,6 +1025,16 @@ function renderModal() {
   var g = game();
   if (state.help) return helpModal();
   if (!g) return '';
+  if (state.rerollAsk) {
+    /* 점수가 걸린 되돌릴 수 없는 행동이라 2단계 확인 — 티츄 선언과 같은 처리 */
+    var rc = g.you && g.you.rerollCost === 30;
+    return '<div class="backdrop" data-dismiss="reroll-cancel"><div class="sheet"><h2>' + STR.rerollConfirm + '</h2>' +
+      '<div class="desc">' + (rc ? STR.rerollDesc8 : STR.rerollDesc14) + '</div>' +
+      '<div class="comboHint" style="margin-top:8px">' + STR.rerollNote + '</div>' +
+      '<div class="row" style="margin-top:10px"><button class="btn ghost grow" data-act="reroll-cancel">' + STR.cancel + '</button>' +
+      '<button class="btn danger grow" data-act="reroll-go">' + STR.rerollBtn + '</button></div>' +
+      '</div></div>';
+  }
   if (g.phase === 'grand' && g.you && g.you.canCallGrand) {
     var eight = g.you.hand.map(function (id) { return cardHtml(id, 'sm'); }).join('');
     // 위험한 선택(그랜드)은 강조하지 않고, 안전한 '선언 안 함'을 기본 강조 — 초심자 오터치 방지
@@ -1031,6 +1043,8 @@ function renderModal() {
       '<div class="grandCards">' + eight + '</div>' +
       '<div class="row"><button class="btn primary grow" data-act="grand-no">' + STR.grandPass + '</button>' +
       '<button class="btn danger grow" data-act="grand-yes">' + STR.grandCall + '</button></div>' +
+      (g.you.canReroll ? '<button class="btn ghost" style="width:100%;margin-top:6px" data-act="reroll">' +
+        STR.rerollBtn + ' (−' + g.you.rerollCost + ', ' + STR.rerollLeft + ' ' + g.you.rerollLeft + ')</button>' : '') +
       '<div class="comboHint" style="margin-top:10px">' + STR.firstTimeHint + '</div>' +
       '<button class="btn ghost" style="width:100%;margin-top:6px" data-act="help-modal">' + STR.rulesBtn + '</button>' +
       '</div></div>';
@@ -1473,6 +1487,9 @@ function onClick(e) {
     case 'history-toggle': state.showHistory = !state.showHistory; render(); break;
     case 'chat-open': state.chatOpen = !state.chatOpen; if (state.chatOpen) state.unread = 0; render(); break;
     case 'chat-close': state.chatOpen = false; render(); break;
+    case 'reroll': state.rerollAsk = true; render(); break;
+    case 'reroll-cancel': state.rerollAsk = false; render(); break;
+    case 'reroll-go': state.rerollAsk = false; send({ type: 'reroll' }); render(); break;
     case 'chat-send': sendChat(($('#chatIn') || {}).value); break;
     case 'chat-preset': sendChat(el.getAttribute('data-t')); break;
     case 'kick-seat': send({ type: 'kick_player', seat: seat }); break;

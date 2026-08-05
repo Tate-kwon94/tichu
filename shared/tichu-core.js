@@ -811,6 +811,9 @@ Game.prototype.viewFor = function (seat) {
       seat: seat,
       hand: this.hands[seat].slice(),
       canCallGrand: this.phase === 'grand' && !this.grandAnswered[seat],
+      canReroll: this.canReroll(seat),                       // 리롤 가능 여부
+      rerollCost: this.rerollCost(this.phase),               // 지금 리롤하면 얼마
+      rerollLeft: this.REROLL_MAX - this.rerolls[teamOf(seat)],   // 우리 팀 남은 횟수
       canCallTichu: this._canTichu(seat),
       exchangeSubmitted: !!this.exchangeGive[seat],
       received: this.exchangeReceived[seat],

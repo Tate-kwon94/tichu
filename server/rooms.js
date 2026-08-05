@@ -772,6 +772,9 @@ function handle(player, a) {
       engineAction = { type: 'play_cards', seat: player.seat, cards: a.cards, wish: a.wish };
       break;
     case 'pass_turn': engineAction = { type: 'pass_turn', seat: player.seat }; break;
+    /* 리롤 — 전원 재딜이라 다른 사람의 진행에 영향을 준다. 엔진이 단계·횟수를 검증하고,
+     * 서버는 봇 타이머만 정리한다(재딜 후 라지 단계부터 다시 스케줄된다). */
+    case 'reroll': engineAction = { type: 'reroll', seat: player.seat }; break;
     case 'give_dragon': engineAction = { type: 'give_dragon', seat: player.seat, toSeat: a.toSeat | 0 }; break;
     case 'to_lobby': {
       // 한 판이 끝나면 대기실로 — 자리·팀을 다시 정하고 새로 시작할 수 있게 한다

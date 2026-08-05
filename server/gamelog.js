@@ -49,6 +49,7 @@ function compact(a, g) {
     case 'call_grand': o.y = 'g'; o.v = a.call ? 1 : 0; break;
     case 'submit_exchange': o.y = 'e'; o.give = a.give; break;
     case 'give_dragon': o.y = 'd'; o.to = a.toSeat; break;
+    case 'reroll': o.y = 'r'; break;
     default: return null;
   }
   return o;
@@ -63,6 +64,15 @@ function onAction(room, a, g) {
     if (!hasHuman) return;
     if (a.type === 'next_round' || a.type === 'restart') { if (room._kibo) room._kibo.live = false; return; }
     var k = ensure(room, g);
+    /* 리롤은 전원 재딜이라 이전 손패 스냅샷과 액션이 통째로 무효가 된다.
+     * 그대로 두면 hands0(옛 패)과 acts(새 패 기준)가 어긋나 재생이 실패한다.
+     * 리롤 횟수만 남기고 리셋한다. */
+    if (a.type === 'reroll') {
+      k.hands0 = null;
+      k.acts = [];
+      k.rerolls = (k.rerolls || 0) + 1;
+      return;
+    }
     // 딜 완료(전원 14장) 시점의 손패 스냅샷 — 교환 전 원 손패
     if (!k.hands0 && g.phase === 'exchange' &&
         g.hands[0].length === 14 && g.hands[1].length === 14 && g.hands[2].length === 14 && g.hands[3].length === 14) {
