@@ -124,6 +124,12 @@ input { font: inherit; }
 }
 .opp.turn { border-color: #ffd34d; box-shadow: 0 0 14px rgba(255,211,77,.35); }
 .opp.partner { background: rgba(255,211,77,.10); }
+/* 관전 배치 — 네 자리를 한 줄에. 좁은 화면에선 2×2로 접는다 */
+.opps.spec4 { flex-wrap: wrap; }
+.opps.spec4 .opp { flex: 1 1 calc(25% - 6px); }
+.opp.teamA { background: rgba(42,98,196,.16); }
+.opp.teamB { background: rgba(179,64,47,.16); }
+@media (max-width: 520px) { .opps.spec4 .opp { flex: 1 1 calc(50% - 4px); } }
 .opp .nm { font-weight: 700; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .opp .cnt { font-size: 12px; opacity: .8; margin-top: 2px; }
 .opp .minis { display: flex; justify-content: center; margin-top: 4px; height: 18px; }
@@ -219,6 +225,18 @@ input { font: inherit; }
   font-size: 10px; font-weight: 800; background: #7ab8ff; color: #102; padding: 1px 7px;
   border-radius: 8px; white-space: nowrap;
 }
+/* 교환으로 받은 카드 표식 — 손패는 52px 카드를 −26px로 겹치므로 왼쪽 절반만 항상 보인다.
+ * 따라서 점은 반드시 왼쪽 위에. 파트너가 준 것은 금색, 상대가 준 것은 회색. */
+.hand .card.recvP::before, .hand .card.recvO::before {
+  content: ''; position: absolute; top: 3px; left: 3px;
+  width: 7px; height: 7px; border-radius: 50%;
+  box-shadow: 0 0 0 1.5px rgba(0,0,0,.35);
+}
+.hand .card.recvP::before { background: #ffd34d; }
+.hand .card.recvO::before { background: #5b6672; }
+body.office .hand .card.recvP::before { background: #217346; box-shadow: none; }
+body.office .hand .card.recvO::before { background: #9aa4ad; box-shadow: none; }
+
 .actions { display: flex; gap: 8px; padding: 8px 4px 2px; }
 .actions .btn { flex: 1; }
 .comboHint { font-size: 12px; opacity: .8; text-align: center; min-height: 16px; }

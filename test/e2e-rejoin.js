@@ -109,11 +109,19 @@ async function main() {
     if (!chul2.snap.game) throw new Error('복귀 후 게임 스냅샷 없음');
     console.log('6) 본인 토큰으로 자기 자리 복귀 OK');
 
-    // 7) 봇 자리 소진(전원 사람) 시 입장 거부
+    // 7) 봇 자리 소진(전원 사람) 시 관전으로 입장 — 문 앞에서 돌려보내지 않는다
     var full = await wsConnect('또치');
     var ackF = await full.sendWait({ type: 'join_room', code: code, name: '또치' });
-    if (!(ackF.error && ackF.error.code === 'GAME_IN_PROGRESS')) throw new Error('만석 거부 실패: ' + JSON.stringify(ackF.error));
-    console.log('7) 봇 자리 소진 시 입장 거부 OK');
+    if (ackF.error) throw new Error('만석 시 관전 입장 실패: ' + JSON.stringify(ackF.error));
+    await sleep(200);
+    var spec = full;
+    if (!spec.snap.spectating) throw new Error('관전 상태가 아님');
+    if (spec.snap.game && spec.snap.game.you) throw new Error('★ 관전자에게 손패가 노출됨');
+    if ((spec.snap.spectators || []).indexOf('또치') < 0) throw new Error('관전자 목록에 없음');
+    // 관전자는 게임 액션 불가
+    var bad = await full.sendWait({ type: 'pass_turn' });
+    if (!(bad.error && bad.error.code === 'SPECTATOR')) throw new Error('관전자 액션이 막히지 않음: ' + JSON.stringify(bad.error));
+    console.log('7) 봇 자리 소진 시 관전 입장 + 손패 비노출 + 액션 차단 OK');
 
     // 8) 강퇴 → 같은 토큰 재입장 차단, 다른 사람은 그 자리 인수 가능
     await host.sendWait({ type: 'kick_player', seat: 2 });
@@ -125,6 +133,20 @@ async function main() {
     await dooly.sendWait({ type: 'join_room', code: code, name: '둘리' });
     if (dooly.snap.youSeat !== 2) throw new Error('둘리 좌석 기대 2, 실제 ' + dooly.snap.youSeat);
     console.log('8) 강퇴 토큰 재입장 차단 + 타인 인수 OK');
+
+    /* 9) 방이 사라질 때 관전자도 풀려나야 한다.
+     * 예전엔 destroyRoom이 좌석만 정리해서, 관전자는 지워진 방을 가리킨 채
+     * left_room도 못 받고 로비로 못 돌아가는 좀비가 됐다. */
+    spec.log.length = 0;
+    var seated = [host, chul2, dooly, spoof];
+    for (var si = 0; si < seated.length; si++) {
+      try { await seated[si].sendWait({ type: 'leave_room' }); } catch (e) { /* 이미 나갔으면 무시 */ }
+    }
+    await sleep(400);
+    if (spec.log.indexOf('left_room') < 0) {
+      throw new Error('★ 방 파괴 시 관전자가 left_room을 못 받음 — 수신log=' + JSON.stringify(spec.log));
+    }
+    console.log('9) 방 파괴 시 관전자도 해제 OK');
 
     console.log('REJOIN E2E PASSED');
     process.exit(0);

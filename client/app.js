@@ -68,7 +68,11 @@ function seatName(s) {
   if (!rs || !rs.occupied) return STR.empty;
   return rs.name || (rs.isBot ? STR.bot : '?');
 }
-function relSeat(rel) { return (mySeat() + rel) % 4; }
+function isSpectator() { return !!(state.snap && state.snap.spectating); }
+/* 관전자는 '나'가 없다(youSeat=-1). 좌석 0을 화면 기준점으로 삼는다 —
+ * 안 그러면 (-1+rel)%4 가 0~2만 내놓아 네 자리 중 하나가 조용히 사라진다. */
+function anchorSeat() { var s = mySeat(); return s < 0 ? 0 : s; }
+function relSeat(rel) { return (anchorSeat() + rel) % 4; }
 // 티츄/라지 티츄 선언을 눈에 띄게 알림 — 새 선언일 때 한 번만 토스트
 function announceDeclare(snap) {
   var g = snap && snap.game;
@@ -182,6 +186,11 @@ function cardHtml(id, cls, attrs) {
     '<span class="cp">' + C.SUIT_SYMBOL[su] + '</span>' +
     '<span class="cr flip">' + C.rankLabel(r) + '<span class="su">' + C.SUIT_SYMBOL[su] + '</span></span>' +
     '</div>';
+}
+// 교환으로 받은 카드의 출처 좌석 (없으면 -1)
+function receivedFrom(you, id) {
+  var r = (you.received || []).filter(function (x) { return x.card === id; })[0];
+  return r ? r.fromSeat : -1;
 }
 function comboLabel(combo) {
   if (!combo) return '';
@@ -410,9 +419,9 @@ function startSolo(resume) {
 function requestRooms() {
   if (state.screen === 'home' && isOnline() && state.welcomed) send({ type: 'list_rooms' });
 }
-function joinRoom(code) {
+function joinRoom(code, spectate) {
   ensureOnline(function () {
-    state.session.send({ type: 'join_room', code: code, name: state.name });
+    state.session.send({ type: 'join_room', code: code, name: state.name, spectate: !!spectate });
   });
 }
 function send(a) { if (state.session) state.session.send(a); }
@@ -670,9 +679,11 @@ function roomListHtml() {
         '<span class="chip dim">' + STR.inGameCount + '</span>' +
         '<span class="grow"></span><span class="chip gold">' + STR.rejoinChip + '</span></button>';
     }).join('') + busy.map(function (r) {
-      return '<div class="roomRow rrBusy"><b>' + esc(r.host) + '</b>의 방' +
+      // 자리가 없어도 관전으로 들어갈 수 있다 — 문 앞에서 돌려보내지 않는다
+      return '<button class="roomRow" data-act="spectate-room" data-code="' + esc(r.code) + '">' +
+        '<b>' + esc(r.host) + '</b>의 방' +
         '<span class="chip dim">' + (r.inGame ? STR.inGameCount : '4/4') + '</span>' +
-        '<span class="grow"></span><span class="chip dim">' + esc(r.code) + '</span></div>';
+        '<span class="grow"></span><span class="chip gold">' + STR.spectate + ' ›</span></button>';
     }).join('');
     inner = rows || '<div class="rlEmpty">' + STR.roomListEmpty + '</div>';
   }
@@ -755,7 +766,9 @@ function renderLobby() {
       (rs.isBot ? ' <span class="chip dim">' + STR.bot + '</span>' : '') +
       (s === snap.hostSeat && rs.occupied && !rs.isBot ? ' <span class="chip gold">' + STR.host + '</span>' : '') +
       (me ? ' <span class="chip gold">' + STR.you + '</span>' : '') + '</div>';
-    inner += '<div class="tag">' + (C.teamOf(s) === C.teamOf(mySeat()) ? STR.myTeam : STR.oppTeam) + ' 팀 · 좌석 ' + (s + 1) + '</div>';
+    var teamTag = isSpectator() ? (C.teamOf(s) === 0 ? 'A' : 'B')
+                                : (C.teamOf(s) === C.teamOf(mySeat()) ? STR.myTeam : STR.oppTeam);
+    inner += '<div class="tag">' + teamTag + ' 팀 · 좌석 ' + (s + 1) + '</div>';
     // 전적·Elo — 사람 좌석만 (서버가 없거나 기록 없으면 생략/첫 게임)
     if (rs.occupied && !rs.isBot) {
       var st = rs.stats;
@@ -810,12 +823,22 @@ function renderTable() {
   var sc = g.scores;
   var my = myTeamKey() === 'teamA' ? sc.teamA : sc.teamB;
   var op = myTeamKey() === 'teamA' ? sc.teamB : sc.teamA;
+  // 관전자에겐 '우리/상대'가 없다 — 팀을 좌석 이름으로 밝힌다
+  var myLabel = STR.myTeam, opLabel = STR.oppTeam;
+  if (isSpectator()) {
+    my = sc.teamA; op = sc.teamB;
+    myLabel = seatName(0) + '·' + seatName(2);
+    opLabel = seatName(1) + '·' + seatName(3);
+  }
 
   // 헤더
   var html = '<div class="ghead">' +
     '<span class="connDot" id="connDot"></span>' +
-    '<span class="score"><span class="a">' + STR.myTeam + ' ' + my + '</span> : <span class="b">' + op + ' ' + STR.oppTeam + '</span></span>' +
+    '<span class="score"><span class="a">' + esc(myLabel) + ' ' + my + '</span> : <span class="b">' + op + ' ' + esc(opLabel) + '</span></span>' +
     '<span class="chip dim">' + g.round + 'R · ' + g.targetScore + '점</span>' +
+    ((snap.spectators && snap.spectators.length)
+      ? '<span class="chip dim" title="' + esc(snap.spectators.join(', ')) + '">👀 ' +
+        STR.spectators + ' ' + snap.spectators.length + '</span>' : '') +
     '<span class="grow"></span>' +
     '<span id="connTxt" style="font-size:11px;opacity:.6"></span>' +
     (snap.code ? '<span class="chip dim">' + esc(snap.code) + '</span>' : '') +
@@ -830,11 +853,15 @@ function renderTable() {
   /* 상대 패널 — 화면 왼쪽부터 [내 왼쪽(rel3) · 파트너(rel2) · 내 오른쪽(rel1)].
    * 진행은 반시계(공식 규칙) = 다음 차례가 내 오른쪽이므로 rel1이 화면 오른쪽이어야 한다.
    * (좌석+1을 화면 왼쪽에 두면 화면상 시계 방향으로 보인다 — 예전 배치의 오류) */
-  html += '<div class="opps">';
-  [3, 2, 1].forEach(function (rel) {
+  html += '<div class="opps' + (isSpectator() ? ' spec4' : '') + '">';
+  // 관전자는 '나' 칸이 없으므로 네 자리를 전부 이 줄에 그린다(rel 0 = 기준 좌석)
+  (isSpectator() ? [3, 2, 1, 0] : [3, 2, 1]).forEach(function (rel) {
     var s = relSeat(rel);
     var rs = snap.roomSeats[s], si = seatInfo(s);
-    var cls = 'opp' + (rel === 2 ? ' partner' : '') + (g.turnSeat === s && g.phase === 'play' ? ' turn' : '');
+    // 파트너 하트는 '내' 파트너라는 뜻 — 관전자에겐 기준이 없으니 팀 색만 남긴다
+    var cls = 'opp' + (rel === 2 && !isSpectator() ? ' partner' : '') +
+      (isSpectator() ? (C.teamOf(s) === 0 ? ' teamA' : ' teamB') : '') +
+      (g.turnSeat === s && g.phase === 'play' ? ' turn' : '');
     var badges = '';
     if (si.tichu === 'grand') badges += '<span class="chip red">' + STR.grandBadge + '</span>';
     else if (si.tichu === 'tichu') badges += '<span class="chip red">' + STR.tichuBadge + '</span>';
@@ -852,7 +879,7 @@ function renderTable() {
     }
     // 게임 중 끊긴 사람을 방장이 봇으로 교체 (서버 kick_player가 봇 전환)
     if (offline && isHost()) timerTxt += '<button class="btn small ghost" data-act="kick-seat" data-seat="' + s + '" style="margin-top:4px">' + STR.toBot + '</button>';
-    var partnerMark = rel === 2 ? (state.office ? '' : ' ♥') : '';
+    var partnerMark = (rel === 2 && !isSpectator()) ? (state.office ? '' : ' ♥') : '';
     var bub = state.bubbles[s];
     var bubbleHtml = (bub && bub.until > Date.now()) ? '<div class="bubble">' + esc(bub.text.slice(0, 60)) + '</div>' : '';
     html += '<div class="' + cls + '">' +
@@ -927,6 +954,23 @@ function lastActionLine() {
 
 function renderMeArea() {
   var snap = state.snap, g = game();
+  /* 관전자 — 손패가 없으므로(서버가 아예 안 보낸다) 조작 영역 대신 안내를 띄운다.
+   * 대기실이면 빈자리에 앉을 수 있게 버튼도 준다. */
+  if (snap && snap.spectating) {
+    var h = '<div class="meArea"><div class="meInfo">' +
+      '<span class="chip gold">' + STR.spectating + '</span>' +
+      '<span class="chip dim">' + STR.spectateHint + '</span></div>';
+    if (!snap.game) {
+      var freeSeats = (snap.roomSeats || []).map(function (p, i) { return p ? -1 : i; }).filter(function (i) { return i >= 0; });
+      if (freeSeats.length) {
+        h += '<div class="row" style="padding:6px 10px">' + freeSeats.map(function (i) {
+          return '<button class="btn small ghost" data-act="sit" data-seat="' + i + '">' +
+            (i + 1) + '번 ' + STR.sitDown + '</button>';
+        }).join('') + '</div>';
+      }
+    }
+    return h + '</div>';
+  }
   var ms = mySeat();
   var si = seatInfo(ms);
   var you = g.you || { hand: [] };
@@ -961,6 +1005,14 @@ function renderMeArea() {
   var exMode = g.phase === 'exchange' && !you.exchangeSubmitted;
   html += '<div class="hand">';
   var wishR = (!exMode && you.mustFulfillWish && g.wish) ? g.wish : null;
+  /* 교환으로 받은 카드에 점을 찍는다 — 손에 남아 있는 동안 계속 보인다.
+   * 파트너가 준 카드는 금색, 상대가 준 카드는 회색(전략적 의미가 다르다). */
+  var recvBy = {};
+  if (you.received) {   // 위장 모드에서도 남긴다 — 색 점은 표 서식처럼 보여 정체를 드러내지 않는다
+    you.received.forEach(function (r) {
+      recvBy[r.card] = (C.teamOf(r.fromSeat) === C.teamOf(ms)) ? 'recvP' : 'recvO';
+    });
+  }
   you.hand.forEach(function (id) {
     var cls = '', attrs = '';
     if (exMode) {
@@ -972,6 +1024,10 @@ function renderMeArea() {
     } else if (state.sel[id]) cls = 'sel';
     // 소원 의무 시 내야 하는 랭크 카드 강조
     if (wishR && !C.isSpecial(id) && C.rankOf(id) === wishR) cls += ' wishhi';
+    if (recvBy[id]) {
+      cls += ' ' + recvBy[id];
+      attrs += ' title="' + esc(STR.received + ' — ' + seatName(receivedFrom(you, id))) + '"';
+    }
     html += cardHtml(id, cls, attrs);
   });
   html += '</div>';
@@ -1079,17 +1135,23 @@ function renderModal() {
 function summaryModal(g) {
   var sum = g.roundSummary;
   if (!sum) return '';
-  var meA = myTeamKey() === 'teamA';
+  // 관전자에겐 '우리/상대'가 없다 — 항상 A팀을 왼쪽에 두고 좌석 이름으로 부른다
+  var spec = isSpectator();
+  var meA = spec || myTeamKey() === 'teamA';
+  var lblUs = spec ? seatName(0) + '·' + seatName(2) : STR.myTeam;
+  var lblThem = spec ? seatName(1) + '·' + seatName(3) : STR.oppTeam;
   function pair(o) { return meA ? [o.teamA, o.teamB] : [o.teamB, o.teamA]; }
   var html = '<div class="backdrop center"><div class="sheet">';
   if (g.phase === 'gameEnd') {
     var won = (sum.winnerTeam === 'A') === meA;
-    html += '<div class="winBig">' + (won ? (state.office ? '' : '🏆 ') + '우리 팀 ' + STR.winA : '상대 팀 승리') + '</div>';
+    html += '<div class="winBig">' + (spec
+      ? (state.office ? '' : '🏆 ') + esc(won ? lblUs : lblThem) + ' 승리'
+      : (won ? (state.office ? '' : '🏆 ') + '우리 팀 ' + STR.winA : '상대 팀 승리')) + '</div>';
   }
   html += '<h2>' + STR.roundEndTitle + ' (' + sum.round + 'R)</h2><table class="sumTable">';
   if (sum.oneTwoTeam) {
     var otMine = (sum.oneTwoTeam === 'A') === meA;
-    html += '<tr><td>' + STR.oneTwo + '</td><td colspan="2">' + (otMine ? STR.myTeam : STR.oppTeam) + ' 팀</td></tr>';
+    html += '<tr><td>' + STR.oneTwo + '</td><td colspan="2">' + esc(otMine ? lblUs : lblThem) + ' 팀</td></tr>';
   } else if (sum.cardPoints) {
     var cp = pair(sum.cardPoints);
     html += '<tr><td>' + STR.cardPts + '</td><td>' + cp[0] + '</td><td>' + cp[1] + '</td></tr>';
@@ -1100,11 +1162,12 @@ function summaryModal(g) {
   });
   var d = pair(sum.deltas), t = pair(sum.totals);
   html += '<tr><td>이번 라운드</td><td>' + (d[0] > 0 ? '+' : '') + d[0] + '</td><td>' + (d[1] > 0 ? '+' : '') + d[1] + '</td></tr>';
-  html += '<tr class="tot"><td>' + STR.total + ' (' + STR.myTeam + ':' + STR.oppTeam + ')</td><td>' + t[0] + '</td><td>' + t[1] + '</td></tr>';
+  html += '<tr class="tot"><td>' + STR.total + ' (' + esc(lblUs) + ':' + esc(lblThem) + ')</td><td>' + t[0] + '</td><td>' + t[1] + '</td></tr>';
   html += '</table>';
   // 방장이 끊겨 있으면 다른 사람도 진행 가능 (서버도 허용) — 결과창 무한 대기 방지
   var hsi = state.snap.roomSeats[state.snap.hostSeat];
-  var canAdvance = isHost() || (hsi && !hsi.connected);
+  // 관전자는 절대 진행 못 한다 — 서버가 SPECTATOR로 막으므로 버튼을 주면 죽은 버튼이 된다
+  var canAdvance = !spec && (isHost() || (hsi && !hsi.connected));
   if (g.phase === 'gameEnd') {
     html += canAdvance
       ? '<div class="row">' +
@@ -1126,7 +1189,8 @@ function summaryModal(g) {
 }
 
 function historyTable(g) {
-  var meA = myTeamKey() === 'teamA';
+  var spec = isSpectator();
+  var meA = spec || myTeamKey() === 'teamA';
   var rows = g.history.map(function (h) {
     var d = meA ? [h.deltas.teamA, h.deltas.teamB] : [h.deltas.teamB, h.deltas.teamA];
     var t = meA ? [h.totals.teamA, h.totals.teamB] : [h.totals.teamB, h.totals.teamA];
@@ -1134,7 +1198,8 @@ function historyTable(g) {
       '<td>' + (d[0] > 0 ? '+' : '') + d[0] + ' / ' + (d[1] > 0 ? '+' : '') + d[1] + '</td>' +
       '<td>' + t[0] + ' : ' + t[1] + '</td></tr>';
   }).join('');
-  return '<table class="sumTable" style="margin-top:6px"><tr style="opacity:.7"><td>라운드</td><td>증감(우리/상대)</td><td>누적</td></tr>' + rows + '</table>';
+  var hdr = spec ? '증감(A/B)' : '증감(우리/상대)';
+  return '<table class="sumTable" style="margin-top:6px"><tr style="opacity:.7"><td>라운드</td><td>' + hdr + '</td><td>누적</td></tr>' + rows + '</table>';
 }
 
 /* 전적 조회 — 서버가 집계원본. Render 무료는 재시작 시 디스크가 날아가므로
@@ -1361,6 +1426,7 @@ function onClick(e) {
       joinRoom(code);
       break;
     }
+    case 'spectate-room': saveName(); joinRoom(el.getAttribute('data-code'), true); break;
     case 'solo': saveName(); startSolo(false); break;
     case 'solo-resume': saveName(); startSolo(true); break;
     case 'sit': send({ type: 'take_seat', seat: seat }); break;

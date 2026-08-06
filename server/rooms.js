@@ -195,6 +195,8 @@ function snapshotFor(room, seat) {
       };
     }),
     game: room.game ? room.game.viewFor(seat) : null,
+    spectating: seat < 0,                                    // 나는 관전자인가
+    spectators: (room.spectators || []).map(function (p) { return p.name; }),
     botTimer: room.botDeadline
       ? { seat: room.botSeat, msLeft: Math.max(0, room.botDeadline - now()) }
       : null
@@ -242,6 +244,15 @@ function broadcast(room) {
     if (!p || p.isBot) return;
     if (p.conn) {
       try { p.conn.send(stateEnvelope(room, seat)); } catch (e) { /* 무시 */ }
+    }
+    flushPoll(p);
+  });
+  /* 관전자는 좌석 −1로 받는다 → viewFor(-1)이 you=null을 돌려주므로 손패가 원천적으로 안 나간다.
+   * 같은 사무실에서 하는 게임이라 관전자가 패를 보면 알려줄 수 있다 — 구조로 막는다. */
+  (room.spectators || []).forEach(function (p) {
+    if (!p) return;
+    if (p.conn) {
+      try { p.conn.send(stateEnvelope(room, -1)); } catch (e) { /* 무시 */ }
     }
     flushPoll(p);
   });
@@ -409,11 +420,44 @@ function destroyRoom(room, reason) {
       unbindPlayer(p);
     }
   });
+  // 관전자도 함께 풀어준다 — 안 그러면 지워진 방을 가리킨 채 로비로 못 돌아간다
+  (room.spectators || []).forEach(function (p) {
+    sendTo(p, { type: 'left_room', reason: reason || 'room_closed' });
+    unbindPlayer(p);
+  });
+  room.spectators = [];
   rooms.delete(room.code);
 }
+var MAX_SPECTATORS = 8;
+
+/* 관전자로 앉힌다. 좌석은 −1 — 게임 액션은 전부 좌석 검사에서 막히고,
+ * 브로드캐스트도 viewFor(-1)이라 손패가 나가지 않는다. */
+function addSpectator(room, player) {
+  if (!room.spectators) room.spectators = [];
+  if (room.spectators.length >= MAX_SPECTATORS) return false;
+  if (room.spectators.indexOf(player) < 0) room.spectators.push(player);
+  player.roomCode = room.code;
+  player.seat = -1;
+  return true;
+}
+function removeSpectator(room, player) {
+  if (!room || !room.spectators) return false;
+  var i = room.spectators.indexOf(player);
+  if (i < 0) return false;
+  room.spectators.splice(i, 1);
+  return true;
+}
+
 function leaveRoom(player, reason, notify) {
   var room = player.roomCode ? rooms.get(player.roomCode) : null;
   if (!room) { unbindPlayer(player); return; }
+  if (player.seat === -1) {                    // 관전자는 좌석 정리 없이 빠진다
+    removeSpectator(room, player);
+    player.roomCode = null; player.seat = -1;
+    unbindPlayer(player);
+    broadcast(room);
+    return;
+  }
   var seat = player.seat;
   if (room.game) {
     room.seats[seat] = makeBot(seat, room);
@@ -541,7 +585,8 @@ function handle(player, a) {
         seats: [player, null, null, null],
         createdAt: now(), lastActivity: now(),
         botTimer: null, botSeat: null, botDeadline: null,
-        banned: [] // 강퇴된 세션 토큰 — 재입장 차단
+        banned: [], // 강퇴된 세션 토큰 — 재입장 차단
+        spectators: [] // 관전자(좌석 없음) — 손패는 절대 보내지 않는다
       };
       player.roomCode = code;
       player.seat = 0;
@@ -578,6 +623,13 @@ function handle(player, a) {
       if (r2.banned && r2.banned.indexOf(player.token) >= 0) {
         return ackOf(a, null, err('KICKED', '이 방에서 강퇴되어 다시 들어갈 수 없습니다'));
       }
+      if (a.spectate) {                        // 명시적 관전 입장
+        if (a.name) player.name = sanitizeName(a.name);
+        if (!addSpectator(r2, player)) return ackOf(a, null, err('ROOM_FULL', '관전 인원이 가득 찼습니다'));
+        r2.lastActivity = now();
+        broadcast(r2);
+        return ackOf(a, r2, null);
+      }
       if (r2.game) {
         // 게임 중 복귀: 봇이 대신하는 자리를 이어받음(팅김·실수 퇴장 복구).
         // 우선순위: 내 세션 토큰으로 전환된 자리(본인 확인) > 일반 봇 > 타인의 전환 자리.
@@ -593,7 +645,14 @@ function handle(player, a) {
           }
         }
         var take2 = mySeat2 >= 0 ? mySeat2 : (plainBot2 >= 0 ? plainBot2 : anyBot2);
-        if (take2 < 0) return ackOf(a, null, err('GAME_IN_PROGRESS', '게임 중이며 이어받을 봇 자리가 없습니다'));
+        if (take2 < 0) {
+          // 이어받을 자리가 없으면 관전으로 — 문 앞에서 돌려보내지 않는다
+          if (a.name) player.name = sanitizeName(a.name);
+          if (!addSpectator(r2, player)) return ackOf(a, null, err('ROOM_FULL', '관전 인원이 가득 찼습니다'));
+          r2.lastActivity = now();
+          broadcast(r2);
+          return ackOf(a, r2, null);
+        }
         r2.seats[take2] = player;
         player.roomCode = code2;
         player.seat = take2;
@@ -605,7 +664,13 @@ function handle(player, a) {
       }
       var free = -1;
       for (var s = 0; s < 4; s++) if (!r2.seats[s]) { free = s; break; }
-      if (free < 0) return ackOf(a, null, err('ROOM_FULL', '방이 가득 찼습니다'));
+      if (free < 0) {
+        if (a.name) player.name = sanitizeName(a.name);
+        if (!addSpectator(r2, player)) return ackOf(a, null, err('ROOM_FULL', '방과 관전석이 모두 찼습니다'));
+        r2.lastActivity = now();
+        broadcast(r2);
+        return ackOf(a, r2, null);
+      }
       if (a.name) player.name = sanitizeName(a.name);
       r2.seats[free] = player;
       player.roomCode = code2;
@@ -618,6 +683,27 @@ function handle(player, a) {
   }
 
   if (!room) return ackOf(a, null, err('ROOM_NOT_FOUND', '방에 입장한 상태가 아닙니다'));
+
+  /* 관전자 — 좌석이 없으므로 게임·방 운영 액션은 전부 막는다.
+   * 허용: 나가기, 채팅, 빈자리 착석. 나머지는 여기서 끊어 엔진까지 가지 않는다. */
+  if (player.seat === -1) {
+    if (a.type === 'take_seat') {
+      if (room.game) return ackOf(a, room, err('BAD_PHASE', '게임 중에는 앉을 수 없습니다'));
+      var ss = a.seat | 0;
+      if (ss < 0 || ss > 3 || room.seats[ss]) return ackOf(a, room, err('SEAT_TAKEN', '빈자리가 아닙니다'));
+      removeSpectator(room, player);
+      room.seats[ss] = player;
+      player.seat = ss;
+      player.joinSeq = ++room.joinCounter;
+      fixHost(room);
+      room.lastActivity = now();
+      broadcast(room);
+      return ackOf(a, room, null);
+    }
+    if (a.type === 'leave_room') { leaveRoom(player, 'left', true); return ackOf(a, null, null); }
+    if (a.type !== 'chat') return ackOf(a, room, err('SPECTATOR', '관전 중에는 할 수 없습니다'));
+  }
+
   var isHost = player.seat === room.hostSeat;
 
   switch (a.type) {

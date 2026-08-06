@@ -187,11 +187,16 @@ async function main() {
     }
     console.log('3) 방 생성/4인 참여 OK (코드 ' + code + ')');
 
-    // 5번째 입장 → ROOM_FULL
-    var c4 = new PollClient('불청객');
+    // 5번째 입장 → 좌석이 없으니 관전으로 (2026-08-05 관전 기능 추가로 동작 변경)
+    var c4 = new PollClient('구경꾼');
     await c4.hello();
-    var full = await c4.send({ type: 'join_room', code: code, name: '불청객' });
-    if (full.ok || full.error.code !== 'ROOM_FULL') throw new Error('ROOM_FULL 미동작: ' + JSON.stringify(full));
+    var full = await c4.send({ type: 'join_room', code: code, name: '구경꾼' });
+    if (!full.ok) throw new Error('만석 시 관전 입장 실패: ' + JSON.stringify(full.error));
+    await sleep(400);
+    if (!c4.snap || !c4.snap.spectating) throw new Error('관전 상태가 아님');
+    if (c4.snap.game && c4.snap.game.you) throw new Error('★ 관전자에게 손패가 노출됨');
+    var badAct = await c4.send({ type: 'start_game' });
+    if (badAct.ok || badAct.error.code !== 'SPECTATOR') throw new Error('관전자 액션 차단 실패: ' + JSON.stringify(badAct));
 
     // 멱등성: 같은 actionId 재전송
     var idem1 = await c1.send({ type: 'take_seat', seat: c1.snap.youSeat });
@@ -211,9 +216,12 @@ async function main() {
     await c0.send({ type: 'start_game' });
     await sleep(400);
 
-    // 진행 중 입장 거부
-    var mid = await c4.send({ type: 'join_room', code: code, name: '불청객' });
-    if (mid.ok || mid.error.code !== 'GAME_IN_PROGRESS') throw new Error('GAME_IN_PROGRESS 미동작');
+    // 진행 중 입장 → 이어받을 봇 자리가 없으면 관전 (관전 기능 추가로 동작 변경)
+    var mid = await c4.send({ type: 'join_room', code: code, name: '구경꾼' });
+    if (!mid.ok) throw new Error('게임 중 관전 입장 실패: ' + JSON.stringify(mid.error));
+    await sleep(400);
+    if (!c4.snap || !c4.snap.spectating) throw new Error('게임 중 관전 상태가 아님');
+    if (c4.snap.game && c4.snap.game.you) throw new Error('★ 게임 중 관전자에게 손패가 노출됨');
 
     // 게임 완주 드라이브
     var done = false, steps = 0, lastActed = {};
