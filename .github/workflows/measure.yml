@@ -48,6 +48,9 @@ on:
       repcap:
         description: 'PUCT 반복 상한(후보측만, 비우면 기본 2000=배포). 배포는 결정 49.8%가 여기 걸려 예산 23.7%를 버린다'
         default: ''
+      perfect:
+        description: '투시(완전정보) — 후보측만. 1이면 상대 패를 다 보고 탐색. 정보 상한 참조'
+        default: ''
       bar:
         description: '판정 기준 점수차'
         default: '4.17'
@@ -78,6 +81,7 @@ jobs:
           OUTBONUS: ${{ inputs.outbonus }}
           FASTPOL: ${{ inputs.fastpol }}
           OPPK: ${{ inputs.oppk }}
+          PERFECT: ${{ inputs.perfect }}
           TM_PARAMS: ${{ inputs.tm_params }}
         run: bash ml/run-shard.sh
       - uses: actions/upload-artifact@v4
