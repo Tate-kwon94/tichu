@@ -29,6 +29,7 @@ function wsConnect(name, token) {
       if (m.type === 'welcome') { clearTimeout(to); st.token = m.token; if (m.snapshot) { st.snap = m.snapshot; st.version = m.version; } resolve(st); }
       else if (m.type === 'room_state' && m.version > st.version) { st.version = m.version; st.snap = m.snapshot; }
       else if (m.type === 'action_ack') { st.acks[m.actionId] = m; }
+      else if (m.type === 'chat') { (st.chats = st.chats || []).push(m); }
     };
     ws.onerror = function () { clearTimeout(to); reject(new Error('WS 오류')); };
     st.send = function (a) {
@@ -122,6 +123,35 @@ async function main() {
     var bad = await full.sendWait({ type: 'pass_turn' });
     if (!(bad.error && bad.error.code === 'SPECTATOR')) throw new Error('관전자 액션이 막히지 않음: ' + JSON.stringify(bad.error));
     console.log('7) 봇 자리 소진 시 관전 입장 + 손패 비노출 + 액션 차단 OK');
+
+    /* 7.5) 관전자도 채팅은 주고받아야 한다.
+     * 예전엔 chat이 room.seats에만 나가서, 좌석 없는 관전자는 남의 말도 자기 말도
+     * 못 받아 채팅이 통째로 죽은 것처럼 보였다(사용자 보고). */
+    spec.chats = []; host.chats = [];
+    var ackC = await spec.sendWait({ type: 'chat', text: '관전자가 보냄' });
+    if (!ackC.ok) throw new Error('관전자 채팅 거부: ' + JSON.stringify(ackC.error));
+    await sleep(400);
+    if (!(host.chats || []).some(function (m) { return m.text === '관전자가 보냄'; })) {
+      throw new Error('★ 관전자가 보낸 채팅이 좌석에 도달하지 않음');
+    }
+    if (!(spec.chats || []).some(function (m) { return m.text === '관전자가 보냄'; })) {
+      throw new Error('★ 관전자가 자기 채팅을 되받지 못함');
+    }
+    await sleep(700);   // 서버 채팅 레이트리밋(600ms)
+    await host.sendWait({ type: 'chat', text: '좌석이 보냄' });
+    await sleep(400);
+    if (!(spec.chats || []).some(function (m) { return m.text === '좌석이 보냄'; })) {
+      throw new Error('★ 좌석이 보낸 채팅이 관전자에게 도달하지 않음');
+    }
+    /* 보낸 사람 구분 — 관전자는 좌석이 전부 −1이라 좌석 비교로는 남의 말도 '나'가 된다.
+     * 서버가 본인에게만 mine을 붙여야 클라이언트가 이름을 제대로 표시한다. */
+    var mySent = (spec.chats || []).filter(function (m) { return m.text === '관전자가 보냄'; })[0];
+    if (!mySent || mySent.mine !== true) throw new Error('★ 내가 보낸 채팅에 mine 표시가 없음');
+    var fromSeat = (spec.chats || []).filter(function (m) { return m.text === '좌석이 보냄'; })[0];
+    if (!fromSeat || fromSeat.mine) throw new Error('★ 남이 보낸 채팅이 내 것으로 표시됨');
+    var seatOwn = (host.chats || []).filter(function (m) { return m.text === '좌석이 보냄'; })[0];
+    if (!seatOwn || seatOwn.mine !== true) throw new Error('★ 좌석 본인 채팅에 mine 표시가 없음');
+    console.log('7.5) 관전자 채팅 송수신 + 발신자 구분 OK');
 
     // 8) 강퇴 → 같은 토큰 재입장 차단, 다른 사람은 그 자리 인수 가능
     await host.sendWait({ type: 'kick_player', seat: 2 });

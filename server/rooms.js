@@ -828,8 +828,16 @@ function handle(player, a) {
         return ackOf(a, room, err('RATE_LIMITED', '천천히 보내주세요'));
       }
       player.lastChatAt = now();
-      var chatEnv = { type: 'chat', seat: player.seat, name: player.name, text: txt, ts: now() };
-      room.seats.forEach(function (p) { sendTo(p, chatEnv); });
+      var stamp = now();
+      var chatEnv = { type: 'chat', seat: player.seat, name: player.name, text: txt, ts: stamp };
+      /* 보낸 사람 본인에게는 mine을 붙여 보낸다. 관전자는 좌석이 전부 −1이라
+       * 클라이언트가 좌석으로 "내 말"을 가리면 남의 관전자 말까지 '나'로 표시된다.
+       * (좌석 플레이어는 좌석 비교로도 맞으므로 구클라이언트와도 호환된다.) */
+      var mineEnv = { type: 'chat', seat: player.seat, name: player.name, text: txt, ts: stamp, mine: true };
+      // 좌석 + 관전자 모두에게. 관전자는 좌석이 없어(-1) seats만 돌면 남의 말도,
+      // 자기가 보낸 말도 못 받는다 — 채팅이 통째로 죽은 것처럼 보였다.
+      room.seats.forEach(function (p) { sendTo(p, p === player ? mineEnv : chatEnv); });
+      (room.spectators || []).forEach(function (p) { sendTo(p, p === player ? mineEnv : chatEnv); });
       room.lastActivity = now();
       return ackOf(a, room, null);
     }

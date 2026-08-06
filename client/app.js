@@ -317,10 +317,13 @@ var handlers = {
     }
   },
   onChat: function (m) {
-    state.chat.push({ seat: m.seat, name: m.name, text: m.text, ts: Date.now() });
+    /* 관전자는 좌석이 모두 −1이라 좌석 비교만으로는 남의 관전자 말도 '나'가 된다.
+     * 서버가 보낸 사람 본인에게만 mine을 붙여준다(구서버 대비 좌석 비교도 남겨둔다). */
+    var mine = m.mine === true || (m.seat >= 0 && m.seat === mySeat());
+    state.chat.push({ seat: m.seat, name: m.name, text: m.text, mine: mine, ts: Date.now() });
     if (state.chat.length > 80) state.chat.shift();
     if (!state.chatOpen) state.unread = Math.min(99, state.unread + 1);
-    if (m.seat !== mySeat()) {
+    if (!mine && m.seat >= 0) {          // 말풍선은 좌석 위에 띄우는 것 — 관전자는 자리가 없다
       state.bubbles[m.seat] = { text: m.text, until: Date.now() + 4500 };
       setTimeout(function () { render(); }, 4600); // 말풍선 자동 소멸
     }
@@ -725,7 +728,7 @@ function chatBtnHtml() {
 }
 function chatPanel() {
   var rows = state.chat.map(function (m) {
-    var mine = m.seat === mySeat();
+    var mine = m.mine === true;   // onChat이 이미 판정해 둔 값 (관전자는 좌석으로 못 가린다)
     return '<div class="chatRow' + (mine ? ' mine' : '') + '"><b>' + esc(mine ? STR.you : m.name) + '</b>' + esc(m.text) + '</div>';
   }).join('');
   var presets = ['굿굿', 'ㅋㅋㅋ', '나이스~', '잠시만요!', '미안ㅠ', '빨리요!'].map(function (p) {
