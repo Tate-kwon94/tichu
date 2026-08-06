@@ -233,12 +233,15 @@ input { font: inherit; }
   font-size: 10px; font-weight: 800; background: #7ab8ff; color: #102; padding: 1px 7px;
   border-radius: 8px; white-space: nowrap;
 }
-/* 교환으로 받은 카드 표식 — 손패는 52px 카드를 −26px로 겹치므로 왼쪽 절반만 항상 보인다.
- * 따라서 점은 반드시 왼쪽 위에. 파트너가 준 것은 금색, 상대가 준 것은 회색. */
+/* 교환으로 받은 카드 표식 — 손패는 52px 카드를 −26px로 겹쳐 왼쪽 띠만 보이고,
+ * 그 띠에서 카드를 알아보는 유일한 단서가 랭크 글자(.cr, top 4px/left 5px)다.
+ * 그래서 점을 왼쪽 위에 찍었더니 숫자를 가려 식별을 방해했다(사용자 보고).
+ * 글자를 전혀 덮지 않도록 카드 왼쪽 모서리에 세로 띠를 세운다.
+ * 파트너가 준 것은 금색, 상대가 준 것은 회색. */
 .hand .card.recvP::before, .hand .card.recvO::before {
-  content: ''; position: absolute; top: 3px; left: 3px;
-  width: 7px; height: 7px; border-radius: 50%;
-  box-shadow: 0 0 0 1.5px rgba(0,0,0,.35);
+  content: ''; position: absolute; left: 0; top: 18px; bottom: 6px;
+  width: 4px; border-radius: 0 3px 3px 0;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.28);
 }
 .hand .card.recvP::before { background: #ffd34d; }
 .hand .card.recvO::before { background: #5b6672; }
