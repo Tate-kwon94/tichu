@@ -59,10 +59,18 @@ input { font: inherit; }
 #toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
 
 /* ---------- 홈 ---------- */
+/* 넘치면 #app(100dvh) 밖으로 문서를 밀지 말고 여기 안에서 스크롤한다.
+ * 문서가 밀리면 주소창 표시/숨김으로 dvh가 바뀔 때마다 화면이 튀고,
+ * 키보드가 뜬 상태에서 스크롤 위치가 어긋난다. */
 .home {
-  flex: 1; display: flex; flex-direction: column; justify-content: center;
+  flex: 1; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column;
   gap: 14px; padding: 24px; max-width: 420px; width: 100%; margin: 0 auto;
 }
+/* 내용이 짧으면 세로 가운데. justify-content:center는 넘칠 때 위쪽이 스크롤로
+ * 닿지 않으므로 auto 여백으로 대신한다(스크롤 안전한 가운데 정렬). */
+.home > :first-child { margin-top: auto; }
+.home > :last-child { margin-bottom: auto; }
 .home h1 { font-size: 44px; text-align: center; letter-spacing: 6px; color: #ffd34d; text-shadow: 0 3px 10px rgba(0,0,0,.4); }
 .home .sub { text-align: center; opacity: .7; margin-bottom: 12px; }
 .home input {
@@ -524,6 +532,29 @@ body.ghost2 #app > *:not(.xl) { opacity: .22; }
 @media (max-height: 620px) {
   .hand { min-height: 84px; }
   .card { width: 46px; height: 66px; }
+}
+/* 가로 모드(짧은 높이) — 압축 규칙이 전부 max-width 기준이라 여기엔 하나도 안 걸렸고,
+ * 폭은 넓은데 높이는 더 부족해 손패·버튼이 화면 밖으로 밀려났다(가로 740x360에서 183px 초과).
+ * 세로 순서: ghead + opps + table + meArea. table만 유연하게 두고 나머지를 줄인다. */
+@media (max-height: 500px) {
+  .ghead { padding: 3px 8px; font-size: 12px; }
+  .ghead .score { font-size: 14px; }
+  .ghead .btn.small { min-height: 30px; padding: 3px 8px; font-size: 12px; }
+  .opps { padding: 4px 8px 2px; gap: 6px; }
+  .opp { padding: 4px 6px; }
+  .opp .minis { display: none; }        /* 장수는 숫자로 이미 보인다 */
+  .opp .nm { font-size: 12px; }
+  .opp .cnt { font-size: 11px; margin-top: 0; }
+  /* 넘치면 손패를 밀어내는 대신 테이블 안에서 스크롤한다 — 낼 카드와 버튼이 최우선 */
+  .table { min-height: 44px; overflow-y: auto; gap: 4px; padding: 4px 8px; }
+  .card { width: 40px; height: 58px; }
+  .hand { min-height: 62px; padding: 8px 6px 2px; }
+  .meInfo { min-height: 0; padding: 0 4px 3px; font-size: 12px; }
+  .comboHint { min-height: 0; }
+  .exRow { gap: 6px; padding: 3px 4px; }
+  .exSlot { min-height: 50px; font-size: 11px; }
+  .actions { gap: 6px; padding: 4px 4px 2px; }
+  .btn { min-height: 40px; padding: 6px 14px; font-size: 15px; }
 }
 
 /* ---------- 전적 ---------- */

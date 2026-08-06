@@ -866,6 +866,9 @@ Game.prototype.viewFor = function (seat) {
     trick: this.trick.map(function (p) { return { seat: p.seat, cards: p.cards.slice() }; }),
     currentCombo: this.currentCombo,
     trickPilePoints: sumPoints(this.trickPile),
+    /* 첫 트릭이 정리됐나 = "한 바퀴 돌았나". 교환 표식을 언제 지울지 판단하는 데 쓴다.
+     * 점수(trickPoints)로 재면 0점짜리 트릭에서 틀리므로 장수로 본다. */
+    firstTrickDone: this.tricksWon.some(function (t) { return t.length > 0; }),
     wish: this.wish,
     dragonChooser: this.dragonChooser,
     firstOutSeat: this.firstOutSeat,

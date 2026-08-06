@@ -982,7 +982,8 @@ function renderMeArea() {
   else if (si.tichu === 'tichu') inf += ' <span class="chip red">' + STR.tichuBadge + '</span>';
   if (si.out) inf += ' <span class="chip gold">' + STR.finishRank[si.outRank - 1] + ' ' + STR.out + '!</span>';
   inf += ' <span class="chip dim">' + si.trickPoints + STR.pilePts + '</span>';
-  if (you.received && you.received.length && si.handCount === 14 && g.phase === 'play' && !state.office) {
+  // 점 표식과 같은 상한(한 바퀴) — 점은 사라졌는데 칩만 남으면 어긋나 보인다
+  if (you.received && you.received.length && si.handCount === 14 && !g.firstTrickDone && g.phase === 'play' && !state.office) {
     inf += ' <span class="chip dim">' + STR.received + ': ' +
       you.received.map(function (r) { return esc(C.cardName(r.card)); }).join(' ') + '</span>';
   }
@@ -1008,7 +1009,8 @@ function renderMeArea() {
   /* 교환으로 받은 카드에 점을 찍는다 — 손에 남아 있는 동안 계속 보인다.
    * 파트너가 준 카드는 금색, 상대가 준 카드는 회색(전략적 의미가 다르다). */
   var recvBy = {};
-  if (you.received) {   // 위장 모드에서도 남긴다 — 색 점은 표 서식처럼 보여 정체를 드러내지 않는다
+  // 한 바퀴(첫 트릭 정리)까지만 — 계속 남으면 거슬린다는 피드백
+  if (you.received && !g.firstTrickDone) {   // 위장 모드에서도 남긴다 — 색 점은 표 서식처럼 보인다
     you.received.forEach(function (r) {
       recvBy[r.card] = (C.teamOf(r.fromSeat) === C.teamOf(ms)) ? 'recvP' : 'recvO';
     });
@@ -1657,8 +1659,14 @@ function trackKeyboard() {
     var kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
     root.style.setProperty('--kb', (kb > 40 ? kb : 0) + 'px');   // 40px 미만은 주소창 흔들림
     root.style.setProperty('--vvh', vv.height + 'px');
-    // 키보드가 페이지를 밀어올렸으면 되돌린다 — 패널이 이미 키보드 위에 있으므로 스크롤이 불필요
-    if (kb > 40 && window.scrollY !== 0) window.scrollTo(0, 0);
+    /* 키보드가 페이지를 밀어올렸으면 되돌린다 — 단, 채팅 패널일 때만.
+     * 채팅 패널은 --kb로 스스로 키보드 위에 서므로 페이지 스크롤이 아예 불필요하다.
+     * 반면 홈 화면은 내용이 길어 문서 스크롤이 정상인데, 여기서까지 되감으면
+     * 키보드에 가린 입력창(방 코드 등)으로 브라우저가 스크롤해 올려도 즉시 튕겨
+     * 무엇을 치는지 볼 수 없게 된다. */
+    var ae = document.activeElement;
+    var inChat = !!(ae && ae.closest && ae.closest('.chatPanel'));
+    if (kb > 40 && inChat && window.scrollY !== 0) window.scrollTo(0, 0);
   }
   vv.addEventListener('resize', sync);
   vv.addEventListener('scroll', sync);
