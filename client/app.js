@@ -1546,7 +1546,7 @@ function onClick(e) {
     case 'restart': send({ type: 'restart_game' }); break;
     case 'to-lobby': send({ type: 'to_lobby' }); break;
     case 'arrange': {
-      var am = t.getAttribute('data-mode');
+      var am = el.getAttribute('data-mode');   // onClick이 잡아둔 요소는 el (t는 존재하지 않는다)
       state.arrangeMode = am;                        // 마지막 선택 강조(클릭 피드백)
       send({ type: 'arrange_seats', mode: am });
       toast(am === 'random' ? STR.teamsShuffled : STR.teamsOrdered, { ms: 1800 });
@@ -1589,7 +1589,14 @@ function onClick(e) {
 function init() {
   appEl = $('#app');
   toastEl = $('#toast');
-  appEl.addEventListener('click', onClick);
+  /* onClick 안에서 예외가 나면 그 버튼은 조용히 아무 일도 안 한 것처럼 보인다.
+   * 실제로 팀 배정 버튼이 오타(el을 t로) 하나 때문에 계속 죽어 있었는데,
+   * 서버 e2e는 액션을 직접 보내 검사하므로 끝까지 드러나지 않았다.
+   * 최소한 눈에 보이게 만든다 — 빌드 없는 프로젝트라 린터가 잡아주지 못한다. */
+  appEl.addEventListener('click', function (e) {
+    try { onClick(e); }
+    catch (err) { console.error('[tichu] 클릭 처리 실패', err); toast('처리 중 오류가 났습니다'); }
+  });
   appEl.addEventListener('keydown', function (e) {
     var tid = e.target && e.target.id;
     if (tid === 'chatIn' || tid === 'nick' || tid === 'code') state.lastTypeAt = Date.now(); // keyCode 229 포함 모든 키

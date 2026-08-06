@@ -721,16 +721,21 @@ function handle(player, a) {
       var occ = room.seats.filter(Boolean);
       if (occ.length < 2) return ackOf(a, room, err('BAD_REQUEST', '사람이 부족합니다'));
       var hostPlayer = room.seats[room.hostSeat];   // 방장은 자리를 따라간다(좌석 번호가 아니라 사람)
+      /* 무작위는 사람이 아니라 **좌석 4칸**을 섞는다.
+       * 앞자리부터 몰아넣으면 2명일 때 늘 좌석 0·1이 되는데 마주보는 자리가 한 팀이라
+       * 둘은 무조건 반대 팀으로 고정된다 — 아무리 눌러도 팀이 안 바뀐다(사용자 보고).
+       * 빈 좌석은 start_game이 봇으로 채우므로(위 793행) 구멍이 나도 안전하다. */
+      var slot = [0, 1, 2, 3];
       if (a.mode === 'random') {
-        for (var ri = occ.length - 1; ri > 0; ri--) {           // Fisher-Yates
-          var rj = crypto.randomInt(ri + 1), tmp = occ[ri]; occ[ri] = occ[rj]; occ[rj] = tmp;
+        for (var ri = slot.length - 1; ri > 0; ri--) {          // Fisher-Yates
+          var rj = crypto.randomInt(ri + 1), tmp = slot[ri]; slot[ri] = slot[rj]; slot[rj] = tmp;
         }
       } else {
         // 참가 순서 — 순번 없는 사람(방장·복귀자)은 0으로 보아 앞에 온다
         occ.sort(function (x, y) { return (x.joinSeq || 0) - (y.joinSeq || 0); });
       }
       room.seats = [null, null, null, null];
-      occ.forEach(function (p2, idx) { room.seats[idx] = p2; p2.seat = idx; });
+      occ.forEach(function (p2, idx) { var sn = slot[idx]; room.seats[sn] = p2; p2.seat = sn; });
       var hi = room.seats.indexOf(hostPlayer);
       if (hi >= 0) room.hostSeat = hi;
       fixHost(room);

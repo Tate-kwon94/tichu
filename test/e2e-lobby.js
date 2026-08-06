@@ -79,6 +79,27 @@ async function main() {
     if (seq !== '가,나,다,라') throw new Error('순서 배정 불일치: ' + seq);
     console.log('2) 들어온 순서 배정 OK →', seq);
 
+    /* 2.5) 2명일 때도 같은 팀이 될 수 있어야 한다.
+     * 예전엔 좌석 0부터 빈틈없이 몰아넣어 두 사람이 늘 좌석 0·1 = 반대 팀으로 고정됐다
+     * (마주보는 자리가 한 팀). 무작위를 아무리 눌러도 팀이 안 바뀌었다(사용자 보고). */
+    for (var k = 1; k < 3; k++) { others[k].send({ type: 'leave_room' }); await sleep(150); }
+    await sleep(250);
+    if (names(host.snap).filter(Boolean).length !== 2) {
+      throw new Error('2인 상태 만들기 실패: ' + JSON.stringify(names(host.snap)));
+    }
+    var sameTeam = 0, tries = 60;
+    for (var r = 0; r < tries; r++) {
+      var idr = host.send({ type: 'arrange_seats', mode: 'random' });
+      if (!(await ack(host, idr, '2인랜덤')).ok) throw new Error('2인 랜덤 거부');
+      await sleep(60);
+      var ns = names(host.snap);
+      // 좌석 0·2가 한 팀, 1·3이 한 팀
+      if ((ns[0] && ns[2]) || (ns[1] && ns[3])) sameTeam++;
+    }
+    // 이론값 1/3. 60회에서 0회면 구조적으로 불가능하다는 뜻(예전 버그)
+    if (sameTeam === 0) throw new Error('★ 2명이 같은 팀이 되는 경우가 ' + tries + '회 중 0회 — 좌석 배치가 앞자리에 고정됨');
+    console.log('2.5) 2인 무작위에서 같은 팀 가능 OK (' + tries + '회 중 ' + sameTeam + '회, 기대 ~' + Math.round(tries / 3) + ')');
+
     // 3) 방장 아닌 사람은 거부
     var idX = others[0].send({ type: 'arrange_seats', mode: 'random' });
     var aX = await ack(others[0], idX, '비방장');
