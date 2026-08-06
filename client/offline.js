@@ -121,6 +121,9 @@ function create(handlers, resume, botLevel, superHy, declNet, exchNet, exchNet4)
     var a = {};
     for (var k in action) a[k] = action[k];
     if (a.type !== 'next_round' && a.type !== 'restart') a.seat = 0;
+    /* 혼자 연습은 파트너(좌석 2)가 항상 봇이다 — 팀 합의제 리롤이 성립하도록 자동 동의시킨다.
+     * (서버 rooms.js와 같은 규칙: 봇에게 물어볼 방법이 없으니 사람 판단에 맡긴다) */
+    if (a.type === 'reroll' && game.canReroll(2)) game.apply({ type: 'reroll', seat: 2 });
     if (a.type === 'restart_game') a.type = 'restart';
     var r = game.apply(a);
     if (handlers.onAck) handlers.onAck({ type: 'action_ack', actionId: a.actionId || '', ok: r.ok, error: r.error || null });

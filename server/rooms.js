@@ -774,7 +774,19 @@ function handle(player, a) {
     case 'pass_turn': engineAction = { type: 'pass_turn', seat: player.seat }; break;
     /* 리롤 — 전원 재딜이라 다른 사람의 진행에 영향을 준다. 엔진이 단계·횟수를 검증하고,
      * 서버는 봇 타이머만 정리한다(재딜 후 라지 단계부터 다시 스케줄된다). */
-    case 'reroll': engineAction = { type: 'reroll', seat: player.seat }; break;
+    /* 패 다시 받기 — 팀 합의제(파트너도 눌러야 실행).
+     * 파트너가 봇이면 물어볼 방법이 없으므로 자동 동의시킨다. 봇은 EV상 리롤을 원하지 않지만
+     * (2,500딜 측정: 최악 패에서도 겨우 본전), 이건 전략이 아니라 사람의 체감을 푸는 장치라
+     * 사람 쪽 판단에 맡기는 것이 맞다. */
+    case 'reroll': {
+      var mateSeat = (player.seat + 2) % 4;
+      var mateP = room.seats[mateSeat];
+      if (mateP && mateP.isBot && room.game && room.game.canReroll(mateSeat)) {
+        room.game.apply({ type: 'reroll', seat: mateSeat });   // 봇 파트너 자동 동의
+      }
+      engineAction = { type: 'reroll', seat: player.seat };
+      break;
+    }
     case 'give_dragon': engineAction = { type: 'give_dragon', seat: player.seat, toSeat: a.toSeat | 0 }; break;
     case 'to_lobby': {
       // 한 판이 끝나면 대기실로 — 자리·팀을 다시 정하고 새로 시작할 수 있게 한다

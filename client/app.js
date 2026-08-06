@@ -944,6 +944,17 @@ function renderMeArea() {
   }
   var bomb = availableBomb();
   if (bomb) inf += ' <button class="btn small danger" data-act="bomb-hint">' + (state.office ? '' : '💥 ') + STR.bombHint + '</button>';
+  /* 패 다시 받기 — 교환이 끝나고 아직 아무도 카드를 내지 않은 창에서만.
+   * 팀 합의제라 내가 누른 뒤에는 파트너 대기 상태를 보여준다. */
+  if (you.rerollOpen) {
+    if (you.rerollVoted) {
+      inf += ' <span class="chip dim">' + STR.rerollWaiting + '</span>';
+    } else if (you.canReroll) {
+      if (you.rerollMate) inf += ' <span class="chip gold">' + STR.rerollMateWants + '</span>';
+      inf += ' <button class="btn small ghost" data-act="reroll">' + STR.rerollBtn +
+        ' (−' + you.rerollCost + ', ' + STR.rerollLeft + ' ' + you.rerollLeft + ')</button>';
+    }
+  }
   html += '<div class="meInfo">' + inf + '</div>';
 
   // 손패
@@ -978,9 +989,7 @@ function renderMeArea() {
     html += '</div>';
     html += '<div class="actions">' +
       (you.canCallTichu ? tichuBtnHtml() : '') +
-      '<button class="btn primary" data-act="ex-confirm"' + (state.exch.every(Boolean) ? '' : ' disabled') + '>' + STR.exchangeConfirm + '</button></div>' +
-      (g.you.canReroll ? '<div class="row" style="margin-top:6px"><button class="btn ghost" style="width:100%" data-act="reroll">' +
-        STR.rerollBtn + ' (−' + g.you.rerollCost + ', ' + STR.rerollLeft + ' ' + g.you.rerollLeft + ')</button></div>' : '');
+      '<button class="btn primary" data-act="ex-confirm"' + (state.exch.every(Boolean) ? '' : ' disabled') + '>' + STR.exchangeConfirm + '</button></div>';
     html += '<div class="comboHint">' + (state.tichuArmed ? STR.confirmHint : STR.exchangeTitle) + '</div>';
   } else if (g.phase === 'exchange') {
     html += '<div class="comboHint">' + STR.exchangeWaiting + '</div>';
@@ -1027,10 +1036,9 @@ function renderModal() {
   if (!g) return '';
   if (state.rerollAsk) {
     /* 점수가 걸린 되돌릴 수 없는 행동이라 2단계 확인 — 티츄 선언과 같은 처리 */
-    var rc = g.you && g.you.rerollCost === 30;
     return '<div class="backdrop" data-dismiss="reroll-cancel"><div class="sheet"><h2>' + STR.rerollConfirm + '</h2>' +
-      '<div class="desc">' + (rc ? STR.rerollDesc8 : STR.rerollDesc14) + '</div>' +
-      '<div class="comboHint" style="margin-top:8px">' + STR.rerollNote + '</div>' +
+      '<div class="desc">' + STR.rerollDesc + '</div>' +
+      '<div class="comboHint" style="margin-top:8px">' + STR.rerollNeedMate + '</div>' +
       '<div class="row" style="margin-top:10px"><button class="btn ghost grow" data-act="reroll-cancel">' + STR.cancel + '</button>' +
       '<button class="btn danger grow" data-act="reroll-go">' + STR.rerollBtn + '</button></div>' +
       '</div></div>';
@@ -1043,8 +1051,6 @@ function renderModal() {
       '<div class="grandCards">' + eight + '</div>' +
       '<div class="row"><button class="btn primary grow" data-act="grand-no">' + STR.grandPass + '</button>' +
       '<button class="btn danger grow" data-act="grand-yes">' + STR.grandCall + '</button></div>' +
-      (g.you.canReroll ? '<button class="btn ghost" style="width:100%;margin-top:6px" data-act="reroll">' +
-        STR.rerollBtn + ' (−' + g.you.rerollCost + ', ' + STR.rerollLeft + ' ' + g.you.rerollLeft + ')</button>' : '') +
       '<div class="comboHint" style="margin-top:10px">' + STR.firstTimeHint + '</div>' +
       '<button class="btn ghost" style="width:100%;margin-top:6px" data-act="help-modal">' + STR.rulesBtn + '</button>' +
       '</div></div>';

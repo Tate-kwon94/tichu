@@ -328,7 +328,7 @@ var FIELDS = ['targetScore', 'scores', 'round', 'phase', 'hands', '_restDeck', '
   'trick', 'trickPile', 'currentCombo', 'lastPlayerSeat', 'turnSeat', 'leaderSeat', 'wish',
   'tichu', 'grandAnswered', 'playedFirst', 'exchangeGive', 'exchangeReceived', 'finished',
   'firstOutSeat', 'dragonChooser', '_pendingRoundEnd', 'roundSummary', 'gameOver',
-  'winnerTeam', 'lastAction', 'history', 'rerolls', 'rerollPenalty'];
+  'winnerTeam', 'lastAction', 'history', 'rerolls', 'rerollPenalty', 'rerollVote'];
 
 function Game(opts) {
   opts = opts || {};
@@ -346,6 +346,7 @@ function Game(opts) {
    * 덱 56장이 전부 나뉘어 있어 한 사람만 다시 받는 건 불가능하므로 전원 재딜한다.
    * 페널티는 리롤한 팀 점수에서 차감하고, 라지 선언은 새 패이므로 전부 초기화된다. */
   this.rerolls = [0, 0];          // 팀별 사용 횟수
+  this.rerollVote = [false, false, false, false];   // 좌석별 리롤 동의(팀 2명 모두 동의해야 실행)
   this.rerollPenalty = [0, 0];    // 팀별 누적 페널티(라운드 정산 때 반영)
   this._startRound();
 }
@@ -400,41 +401,62 @@ Game.prototype._badSeat = function (s) { return !(s === 0 || s === 1 || s === 2 
  * 덱 56장이 전부 나뉘어 있어 한 사람만 다시 받는 건 불가능 → 전원 재딜.
  * 새 패이므로 라지 선언·응답은 전부 초기화하고 라지 단계부터 다시 한다. */
 Game.prototype.REROLL_MAX = 2;
-Game.prototype.rerollCost = function (phase) { return phase === 'grand' ? 30 : 50; };
+Game.prototype.REROLL_COST = 75;
+
+/* 리롤 창: 교환까지 끝나고 아직 아무도 카드를 내지 않은 시점만.
+ * 한 장이라도 나가면 판이 진행된 것이라 되돌릴 수 없다. */
+Game.prototype._rerollWindow = function () {
+  if (this.phase !== 'play') return false;
+  if (this.trick.length || this.trickPile.length) return false;
+  for (var i = 0; i < 4; i++) if (this.tricksWon[i].length) return false;
+  return true;
+};
 
 Game.prototype.canReroll = function (s) {
   if (this._badSeat(s)) return false;
-  if (this.phase !== 'grand' && this.phase !== 'exchange') return false;
-  if (this.phase === 'exchange' && this.exchangeGive[s]) return false;   // 이미 교환 제출했으면 불가
+  if (!this._rerollWindow()) return false;
+  if (this.rerollVote[s]) return false;                       // 이미 동의함
   return this.rerolls[teamOf(s)] < this.REROLL_MAX;
 };
 
+/* 팀 합의제 — 항복에 가까운 선택이라 파트너 동의가 있어야 한다.
+ * 한 명이 누르면 대기 상태가 되고, 파트너가 눌러야 실행된다.
+ * 봇 파트너는 서버·오프라인 계층이 자동 동의시킨다(봇에게 물어볼 방법이 없다). */
 Game.prototype._reroll = function (s) {
   if (this._badSeat(s)) return err('BAD_REQUEST', '좌석 오류');
-  if (this.phase !== 'grand' && this.phase !== 'exchange')
-    return err('BAD_PHASE', '리롤은 라지 선언·교환 단계에서만 가능합니다');
-  if (this.phase === 'exchange' && this.exchangeGive[s])
-    return err('BAD_PHASE', '교환을 제출한 뒤에는 리롤할 수 없습니다');
+  if (!this._rerollWindow())
+    return err('BAD_PHASE', '카드를 내기 전에만 다시 받을 수 있습니다');
   var t = teamOf(s);
   if (this.rerolls[t] >= this.REROLL_MAX)
-    return err('REROLL_LIMIT', '리롤을 모두 사용했습니다 (팀당 ' + this.REROLL_MAX + '회)');
+    return err('REROLL_LIMIT', '다시 받기를 모두 사용했습니다 (팀당 ' + this.REROLL_MAX + '회)');
+  if (this.rerollVote[s]) return err('BAD_REQUEST', '이미 동의했습니다');
 
-  var cost = this.rerollCost(this.phase);
+  this.rerollVote[s] = true;
+  var mate = partnerOf(s);
+  if (!this.rerollVote[mate]) {                                // 파트너 대기
+    this.lastAction = { seat: s, kind: 'reroll_vote', team: t };
+    return okRes();
+  }
+
+  // 양쪽 동의 — 실행
   this.rerolls[t]++;
-  this.rerollPenalty[t] += cost;
-
-  // 전원 재딜 — 라운드 번호는 그대로(같은 라운드를 다시 하는 것)
+  this.rerollPenalty[t] += this.REROLL_COST;
   var deck = shuffled(makeDeck(), this.rng);
   this.hands = [0, 1, 2, 3].map(function (p) { return sortHand(deck.slice(p * 8, p * 8 + 8)); });
   this._restDeck = deck.slice(32);
-  // 새 패이므로 선언·교환 상태를 전부 초기화하고 라지 단계로 되돌린다
   this.tichu = [0, 0, 0, 0];
   this.grandAnswered = [false, false, false, false];
   this.playedFirst = [false, false, false, false];
   this.exchangeGive = [null, null, null, null];
   this.exchangeReceived = [[], [], [], []];
+  this.rerollVote = [false, false, false, false];
+  this.wish = null;
+  this.turnSeat = -1;
+  this.leaderSeat = -1;
+  this.currentCombo = null;
+  this.lastPlayerSeat = -1;
   this.phase = 'grand';
-  this.lastAction = { seat: s, kind: 'reroll', cost: cost, team: t };
+  this.lastAction = { seat: s, kind: 'reroll', cost: this.REROLL_COST, team: t };
   return okRes();
 };
 
@@ -811,9 +833,12 @@ Game.prototype.viewFor = function (seat) {
       seat: seat,
       hand: this.hands[seat].slice(),
       canCallGrand: this.phase === 'grand' && !this.grandAnswered[seat],
-      canReroll: this.canReroll(seat),                       // 리롤 가능 여부
-      rerollCost: this.rerollCost(this.phase),               // 지금 리롤하면 얼마
+      canReroll: this.canReroll(seat),                            // 다시 받기 가능 여부
+      rerollCost: this.REROLL_COST,                               // 팀 점수에서 차감될 값
       rerollLeft: this.REROLL_MAX - this.rerolls[teamOf(seat)],   // 우리 팀 남은 횟수
+      rerollVoted: !!this.rerollVote[seat],                       // 내가 동의했나
+      rerollMate: !!this.rerollVote[partnerOf(seat)],             // 파트너가 동의했나
+      rerollOpen: this._rerollWindow(),
       canCallTichu: this._canTichu(seat),
       exchangeSubmitted: !!this.exchangeGive[seat],
       received: this.exchangeReceived[seat],
