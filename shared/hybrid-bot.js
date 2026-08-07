@@ -424,8 +424,11 @@ function create(netOrPath) {
         }
         // 완전정보(투시) 모드 — 결정화 대신 실제 게임을 복제. 상대 패를 다 안다.
         // 3단 헤드룸 측정용: 투시 봇 vs 결정화 봇의 격차 = 불완전정보 처리의 상한.
+        // 선언 편향(5단 후보) — determinize가 티츄 선언 신호를 쓰게 한다. 0이면 종전과 동일.
+        if (opts && opts.declBias) globalThis.__TICHU_DECLBIAS = opts.declBias;
         var det = (opts && opts.perfect) ? game.clone()
           : B.determinize(game, seat, constraints); // ③ 제약 반영 결정화
+        if (opts && opts.declBias) globalThis.__TICHU_DECLBIAS = 0;
         var sim = det.clone ? det.clone() : B.cloneGame(det);
         var h2 = hist.slice();
         if (applyCand(sim, seat, cands[best], h2)) {

@@ -54,6 +54,9 @@ on:
       pin:
         description: '부분 투시 0~1 — 상대 카드를 이 확률로 진짜 위치에 고정하되 나머지는 결정화(앙상블 유지). 정보와 앙상블 효과를 분리한다'
         default: ''
+      declbias:
+        description: '선언 조건부 결정화 0~1 (5단 후보) — 티츄 선언 좌석에 강한 카드를 몰아준다. 실전 관측 가능 정보'
+        default: ''
       bar:
         description: '판정 기준 점수차'
         default: '4.17'
@@ -86,6 +89,7 @@ jobs:
           OPPK: ${{ inputs.oppk }}
           PERFECT: ${{ inputs.perfect }}
           PIN: ${{ inputs.pin }}
+          DECLBIAS: ${{ inputs.declbias }}
           TM_PARAMS: ${{ inputs.tm_params }}
         run: bash ml/run-shard.sh
       - uses: actions/upload-artifact@v4

@@ -422,6 +422,50 @@ function determinize(game, seat, constraints) {
       }
     }
   }
+  /* 선언 편향 — 티츄를 외친 좌석은 강한 패를 들었을 확률이 높다.
+   * 지금 determinize는 이 신호를 통째로 버린다(교환·패스 이력은 쓰면서). 광맥 지도에서
+   * 사람이 봇을 앞서는 유형이 전부 '티츄가 걸린 국면'이었고, PIN 곡선은 믿음이 정확해지면
+   * 최대 +4.61까지 번다고 했다 — 선언은 훔쳐보기가 아니라 실전에서 관측 가능한 정보다.
+   *
+   * 방식: 선언 좌석의 약한 카드를 비선언 좌석의 강한 카드와 소프트 스왑(패스 제약 교정과 동일 패턴).
+   * 카드 총량·좌석별 장수는 보존된다. 강도는 랭크(특수는 용>봉황>마작>개).
+   * globalThis.__TICHU_DECLBIAS = 0(기본, 프로덕션 무영향) ~ 1(최대). */
+  var declBias = (typeof globalThis !== 'undefined' && globalThis.__TICHU_DECLBIAS) || 0;
+  if (declBias > 0) {
+    var strengthOf = function (id) {
+      if (id === 'DRG') return 17; if (id === 'PHX') return 16;
+      if (id === 'MJ') return 1;  if (id === 'DG') return 0;
+      return rankOf(id);
+    };
+    for (var di = 0; di < others.length; di++) {
+      var ds = others[di];
+      var lvl = game.tichu && game.tichu[ds];            // 100=스몰, 200=라지
+      if (!lvl || g.finished.indexOf(ds) >= 0) continue;
+      // 라지는 8장만 보고 외친 것이라 신호가 더 강하다
+      var swaps = Math.round(declBias * (lvl >= 200 ? 4 : 2));
+      for (var sw = 0; sw < swaps; sw++) {
+        var dh = g.hands[ds];
+        if (!dh.length) break;
+        // 선언 좌석에서 가장 약한 카드
+        var wi = 0;
+        for (var a1 = 1; a1 < dh.length; a1++) if (strengthOf(dh[a1]) < strengthOf(dh[wi])) wi = a1;
+        // 비선언 상대 좌석 중 무작위로 하나 골라 가장 강한 카드
+        var cands = [];
+        for (var oj = 0; oj < others.length; oj++) {
+          var oy = others[oj];
+          if (oy === ds) continue;
+          if (game.tichu && game.tichu[oy]) continue;    // 다른 선언자에게서 뺏지 않는다
+          if (g.hands[oy].length) cands.push(oy);
+        }
+        if (!cands.length) break;
+        var y2 = cands[Math.floor(RND() * cands.length)];
+        var yh2 = g.hands[y2], si2 = 0;
+        for (var b1 = 1; b1 < yh2.length; b1++) if (strengthOf(yh2[b1]) > strengthOf(yh2[si2])) si2 = b1;
+        if (strengthOf(yh2[si2]) <= strengthOf(dh[wi])) break;   // 더 강한 카드가 없으면 중단
+        var tmp2 = dh[wi]; dh[wi] = yh2[si2]; yh2[si2] = tmp2;
+      }
+    }
+  }
   return g;
 }
 // 비종료 상태의 대략 평가: 지금까지 딴 점수차 + 손패 적을수록(완주 임박) 가점

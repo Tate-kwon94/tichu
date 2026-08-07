@@ -188,6 +188,7 @@ function hyDecide(g, seat, hist) {
       holdValue: hasCand('holdValue'), oppRead: hasCand('oppRead'),   // ②③
       oracle: ORACLE, oracleMix: ORACLE_MIX,                          // ④
       perfect: process.env.TICHU_PERFECT === '1',                    // 3단 헤드룸: 투시(완전정보)
+      declBias: +process.env.TICHU_DECLBIAS || 0,                   // 5단 후보: 선언 조건부 결정화
       playout: process.env.TICHU_PLAYOUT || undefined,                // 'neural'=신경망 플레이아웃
       oppK: +process.env.TICHU_OPPK || 0,                            // 상대-연속 편향 제거(첫 K수)
       tm: TM,

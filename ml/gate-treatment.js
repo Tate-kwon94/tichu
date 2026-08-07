@@ -39,7 +39,11 @@ for (var seed = SEED0; n < NPOS && seed < SEED0 + NPOS * 4; seed++) {
   var opt = { seed: seed, targetScore: 500 };
   if (SCORES.length === 2) opt.scores = SCORES;
   var g = new C.Game(opt);
-  for (var i = 0; i < 4; i++) g.apply({ type: 'call_grand', seat: i, call: false });
+  /* TICHU_DECL="1,3" 이면 그 좌석들이 라지 티츄를 선언한 국면을 만든다.
+   * 선언 조건부 처치(declBias 등)는 선언이 없는 국면에선 정의상 무효라, 무작위 국면으로 재면
+   * 희석돼 '발현 안 됨'으로 보인다 — 처치가 적용되는 부분모집단에서 재야 한다. */
+  var DECL = (process.env.TICHU_DECL || '').split(',').filter(Boolean).map(Number);
+  for (var i = 0; i < 4; i++) g.apply({ type: 'call_grand', seat: i, call: DECL.indexOf(i) >= 0 });
   for (var s = 0; s < 4; s++) g.apply({ type: 'submit_exchange', seat: s, give: B.botExchange(g, s, { keepSpecials: true }) });
   var gd = 0, step = (seed % 7) + 3;
   while (g.phase === 'play' && gd < step) {
