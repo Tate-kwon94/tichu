@@ -38,12 +38,14 @@ jobs:
           RATE: ${{ inputs.rate }}
         run: |
           mkdir -p out
+          test -f "${{ inputs.corpus }}" || { echo "★ corpus 없음: ${{ inputs.corpus }}"; ls -la ml/data/ || true; exit 1; }
           node ml/judge-independent.js "${{ inputs.corpus }}" \
             "${{ inputs.puct_ms }}" "${{ inputs.reps }}" "${{ inputs.maxdec }}" \
             $(( 1000 + ${{ matrix.shard }} )) \
             > "out/judge_${{ matrix.shard }}.jsonl" 2> "out/judge_${{ matrix.shard }}.err"
           echo "--- 샤드 ${{ matrix.shard }} 요약 ---"
           tail -12 "out/judge_${{ matrix.shard }}.err"
+        continue-on-error: false
       - uses: actions/upload-artifact@v4
         with:
           name: judge-${{ matrix.shard }}

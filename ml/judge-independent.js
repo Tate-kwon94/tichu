@@ -133,6 +133,11 @@ function classify(g, seat, chosenKey) {
 }
 
 // ---------- 본체 ----------
+if (!require('fs').existsSync(FILE)) {
+  // CI에서 조용히 죽지 않게 — stderr를 파일로 돌리면 원인이 안 보인다(실제로 20샤드를 날렸다)
+  console.error('★ 기보 파일이 없습니다: ' + FILE);
+  process.exit(2);
+}
 var recs = GR.load(FILE);
 var rnd = mulberry(SEED);
 var rows = [], seen = 0, div = 0, t0 = Date.now();
