@@ -1,0 +1,63 @@
+name: judge
+# 사람 수 vs 봇 수를 **선택에 쓰이지 않은 심판**으로 전수 채점 — 20러너 분산.
+# 왜 CI인가: 결정마다 PUCT 950ms + 롤아웃 24회×3조건이라 로컬 전수는 하룻밤이 걸린다.
+# 출력은 mine-analyze.py 호환 JSONL(cls 포함) — 그대로 광맥 지도로 넘어간다.
+
+on:
+  workflow_dispatch:
+    inputs:
+      corpus:
+        description: '기보 경로'
+        default: 'ml/data/live-gamelog.jsonl'
+      puct_ms:
+        description: '봇 재현 예산 ms'
+        default: '950'
+      reps:
+        description: '이어두기 CRN 반복'
+        default: '24'
+      rate:
+        description: '표본율 (1=전수)'
+        default: '1'
+      maxdec:
+        description: '샤드당 최대 결정 수(안전판)'
+        default: '400'
+
+jobs:
+  shard:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+    steps:
+      - uses: actions/checkout@v4
+      - name: run shard
+        env:
+          SHARD: ${{ matrix.shard }}
+          TOTAL_SHARDS: '20'
+          RATE: ${{ inputs.rate }}
+        run: |
+          mkdir -p out
+          node ml/judge-independent.js "${{ inputs.corpus }}" \
+            "${{ inputs.puct_ms }}" "${{ inputs.reps }}" "${{ inputs.maxdec }}" \
+            $(( 1000 + ${{ matrix.shard }} )) \
+            > "out/judge_${{ matrix.shard }}.jsonl" 2> "out/judge_${{ matrix.shard }}.err"
+          echo "--- 샤드 ${{ matrix.shard }} 요약 ---"
+          tail -12 "out/judge_${{ matrix.shard }}.err"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: judge-${{ matrix.shard }}
+          path: out/
+
+  merge:
+    needs: shard
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: 집계
+        run: python3 ml/judge-merge.py 'out/*.jsonl' | tee -a "$GITHUB_STEP_SUMMARY"

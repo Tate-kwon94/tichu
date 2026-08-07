@@ -51,6 +51,9 @@ on:
       perfect:
         description: '투시(완전정보) — 후보측만. 1이면 상대 패를 다 보고 탐색. 정보 상한 참조'
         default: ''
+      pin:
+        description: '부분 투시 0~1 — 상대 카드를 이 확률로 진짜 위치에 고정하되 나머지는 결정화(앙상블 유지). 정보와 앙상블 효과를 분리한다'
+        default: ''
       bar:
         description: '판정 기준 점수차'
         default: '4.17'
@@ -82,6 +85,7 @@ jobs:
           FASTPOL: ${{ inputs.fastpol }}
           OPPK: ${{ inputs.oppk }}
           PERFECT: ${{ inputs.perfect }}
+          PIN: ${{ inputs.pin }}
           TM_PARAMS: ${{ inputs.tm_params }}
         run: bash ml/run-shard.sh
       - uses: actions/upload-artifact@v4
