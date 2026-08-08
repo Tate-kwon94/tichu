@@ -422,6 +422,35 @@ function determinize(game, seat, constraints) {
       }
     }
   }
+  /* 소원 연역(noRank) — 하드 제약. constraints.noRank = { seat: {rank:1} }
+   * "그 좌석은 이 랭크를 한 장도 안 가졌다"가 **증명된** 경우만 들어온다(hybrid-bot wishExclusions).
+   * 위반 카드를 제약 없는 좌석의 카드와 맞바꾼다. 받을 좌석이 없으면 그대로 둔다
+   * (카드 총량·좌석별 장수는 어떤 경우에도 보존한다). */
+  var noRank = constraints && constraints.noRank;
+  if (noRank) {
+    for (var ni = 0; ni < others.length; ni++) {
+      var nx = others[ni], bad = noRank[nx];
+      if (!bad) continue;
+      var nh = g.hands[nx];
+      for (var nc = 0; nc < nh.length; nc++) {
+        var nid = nh[nc];
+        if (isSpecial(nid) || !bad[rankOf(nid)]) continue;
+        for (var nyi = 0; nyi < others.length; nyi++) {
+          var ny = others[nyi];
+          if (ny === nx) continue;
+          if (noRank[ny] && noRank[ny][rankOf(nid)]) continue;    // 받는 쪽도 금지면 안 됨
+          var nyh = g.hands[ny], swapped2 = false;
+          for (var nyj = 0; nyj < nyh.length; nyj++) {
+            var yid2 = nyh[nyj];
+            if (!isSpecial(yid2) && bad[rankOf(yid2)]) continue;  // 되받으면 또 위반
+            nh[nc] = yid2; nyh[nyj] = nid; swapped2 = true; break;
+          }
+          if (swapped2) break;
+        }
+      }
+    }
+  }
+
   /* 선언 편향 — 티츄를 외친 좌석은 강한 패를 들었을 확률이 높다.
    * 지금 determinize는 이 신호를 통째로 버린다(교환·패스 이력은 쓰면서). 광맥 지도에서
    * 사람이 봇을 앞서는 유형이 전부 '티츄가 걸린 국면'이었고, PIN 곡선은 믿음이 정확해지면

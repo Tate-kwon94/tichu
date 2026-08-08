@@ -35,7 +35,7 @@ var hy = HY.create(path.join(__dirname, '..', 'shared', 'weights-super3.json'));
 function key(a) { return JSON.stringify((a && a.cards) || 'pass'); }
 
 var ctrl = 0, treat = 0, n = 0, qShift = 0;
-for (var seed = SEED0; n < NPOS && seed < SEED0 + NPOS * 4; seed++) {
+for (var seed = SEED0; n < NPOS && seed < SEED0 + NPOS * 200; seed++) {
   var opt = { seed: seed, targetScore: 500 };
   if (SCORES.length === 2) opt.scores = SCORES;
   var g = new C.Game(opt);
@@ -52,6 +52,8 @@ for (var seed = SEED0; n < NPOS && seed < SEED0 + NPOS * 4; seed++) {
     gd++;
   }
   if (g.phase !== 'play') continue;
+  // TICHU_NEEDWISH=1 이면 소원이 살아 있는 국면만 — 조건부 처치는 조건이 성립해야 발현한다
+  if (process.env.TICHU_NEEDWISH === '1' && !g.wish) continue;
   var base = { budgetMs: BUD, c: 1.0, repCap: 1e9, wantStats: true };
   var A1 = hy.decidePuct(g, g.turnSeat, [], base);
   if (A1.cands.length < 2) continue;

@@ -46,6 +46,7 @@ for p in $(seq 0 $((PROCS - 1))); do
   TICHU_PERFECT="${PERFECT:-}" \
   TICHU_PIN="${PIN:-}" \
   TICHU_DECLBIAS="${DECLBIAS:-}" \
+  TICHU_WISHREAD="${WISHREAD:-}" \
   node ml/eval-hybrid.js "$WMAIN" "pu:$WOPP:1.0" "$S" "$E" "$BUDGET" "$BUDGET_OPP" puct 1 1.0 \
     > "ci-logs/out_${SHARD}_${p}.log" 2>&1 &
 done

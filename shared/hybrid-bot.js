@@ -297,6 +297,45 @@ function create(netOrPath) {
     return mp;
   }
 
+  /* 소원 연역 — 확률이 아니라 **참인 연역**이다(5단 후보 wishRead).
+   * 엔진은 소원을 하드 강제한다: 이행 가능하면 다른 수도 패스도 거부된다(tichu-core 576·658행).
+   * 그리고 소원은 이행되면 해제된다. 따라서 **소원이 지금도 살아 있다**는 사실이
+   * 그동안 아무도 이행하지 않았음을 증명한다:
+   *   ① 소원 R이 걸린 채 리드한 좌석 → R이 한 장도 없다
+   *      (리드는 아무 싱글이나 낼 수 있으니, R이 있었다면 강제되어 이행했을 것)
+   *   ② 소원 R보다 낮은 싱글에 패스한 좌석 → R이 없다
+   *      (R 싱글이면 그 싱글을 이기면서 동시에 이행하므로 강제됐을 것)
+   * 예전에 닫힌 oppRead(패스 랭크 추론)는 확률적 추정이라 "틀린 belief"를 만들어 40%로 졌다.
+   * 이건 위반이 원리적으로 불가능한 하드 제약이라 그 함정이 없다.
+   *
+   * hist에 소원 값은 없지만 마작(싱글 r=1)이 소원을 세우므로 그 지점 이후만 본다. */
+  function wishExclusions(hist, wish) {
+    if (!wish) return null;
+    var start = -1;
+    for (var i = hist.length - 1; i >= 0; i--) {
+      var h0 = hist[i];
+      if (h0.t === 'single' && h0.r === 1) { start = i; break; }   // 마작 = 소원 설정 시점
+    }
+    if (start < 0) return null;
+    var no = {}, cur = null, passRun = 0, isLead = true;
+    for (var j = start + 1; j < hist.length; j++) {
+      var h = hist[j];
+      if (h.t === 'pass') {
+        // ② 소원보다 낮은 싱글에 패스 → R 없음
+        if (cur && cur.t === 'single' && cur.r < wish) (no[h.s] = no[h.s] || {})[wish] = 1;
+        passRun++;
+        if (passRun >= 3) { cur = null; passRun = 0; isLead = true; }   // 트릭 종료 → 다음은 리드
+        continue;
+      }
+      // ① 소원이 걸린 채 리드했는데 소원이 아직 살아 있다 → 그 좌석은 R 없음
+      if (isLead) (no[h.s] = no[h.s] || {})[wish] = 1;
+      if (h.t === 'dog') { cur = null; isLead = true; passRun = 0; continue; }
+      cur = { t: h.t, r: h.r };
+      isLead = false; passRun = 0;
+    }
+    return Object.keys(no).length ? no : null;
+  }
+
   // Phase 2: 보유 가치(아끼기) — 강카드를 이번 수로 소비하는 기회비용을 평가에 반영(v-space 음수).
   // 시뮬 평균이 희석하는 "아꼈다 결정적일 때 쓴다"의 가치를 명시화. 3가지로 감쇠(지금 쓸 값어치·위협·종반).
   function holdBonus(g, seat, cand) {
@@ -368,6 +407,10 @@ function create(netOrPath) {
       }
       // ③ 상대 패 읽기: 이력에서 "각 좌석이 싱글에 패스한 최대 랭크" 추출 → 결정화 제약
       var constraints = (opts && opts.oppRead) ? { maxPassSingle: passConstraints(hist) } : null;
+      if (opts && opts.wishRead) {
+        var wx = wishExclusions(hist, game.wish);
+        if (wx) constraints = Object.assign(constraints || {}, { noRank: wx });
+      }
       // ④ 오라클 말단 평가(있으면 플레이아웃 대신). oracleMix는 안전판 — 그 비율만큼은 여전히
       //    실제 플레이아웃으로 재서, 가치망이 통째로 틀린 영역을 탐색이 물고 늘어지는 사고를 막는다.
       var oracle = (opts && opts.oracle) || null;
