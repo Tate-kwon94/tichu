@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "test": "node test/run-tests.js",
-    "test:e2e": "node test/e2e-online.js && node test/e2e-rejoin.js && node test/e2e-resilience.js && node test/e2e-staleplay.js && node test/e2e-lobby.js && node test/e2e-kv.js",
+    "test:e2e": "node test/e2e-clicks.js && node test/e2e-online.js && node test/e2e-rejoin.js && node test/e2e-resilience.js && node test/e2e-staleplay.js && node test/e2e-lobby.js && node test/e2e-kv.js",
     "test:all": "npm test && npm run test:e2e"
   },
   "engines": {
