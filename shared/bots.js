@@ -422,6 +422,48 @@ function determinize(game, seat, constraints) {
       }
     }
   }
+  /* 큰 판 패스 제약(noBeat) — constraints.noBeat = { seat: [{t,r,l}, ...] }
+   * "그 좌석은 이 조합을 이길 수 없었다"(25점+ 판에서 패스 = 96% 참, 측정치).
+   * 싱글·페어·트리플만 정확히 강제한다 — 스트레이트·풀하우스는 조합 판정이 복잡하고
+   * 잘못 깨면 오히려 틀린 belief가 되므로 손대지 않는다(보수적).
+   * 위반 카드를 제약 없는 좌석과 맞바꾼다. 카드 총량·좌석별 장수는 보존한다. */
+  var noBeat = constraints && constraints.noBeat;
+  if (noBeat) {
+    var rankCount = function (h, r) { var c = 0; for (var i2 = 0; i2 < h.length; i2++) { var id2 = h[i2]; if (!isSpecial(id2) && rankOf(id2) === r) c++; } return c; };
+    for (var bi = 0; bi < others.length; bi++) {
+      var bx = others[bi], reqs = noBeat[bx];
+      if (!reqs) continue;
+      for (var qi = 0; qi < reqs.length; qi++) {
+        var q = reqs[qi];
+        var need = q.t === 'single' ? 1 : q.t === 'pair' ? 2 : q.t === 'triple' ? 3 : 0;
+        if (!need) continue;                       // 그 외 조합은 건드리지 않는다
+        var bh = g.hands[bx];
+        for (var rr = 14; rr > q.r; rr--) {        // q.r 초과 랭크 중 need장 이상이면 위반
+          var guard2 = 0;
+          while (rankCount(bh, rr) >= need && ++guard2 < 8) {
+            // 위반 카드 한 장을 제약 없는 좌석의 안전한 카드와 교환
+            var vi = -1;
+            for (var k2 = 0; k2 < bh.length; k2++) if (!isSpecial(bh[k2]) && rankOf(bh[k2]) === rr) { vi = k2; break; }
+            if (vi < 0) break;
+            var done2 = false;
+            for (var byi = 0; byi < others.length && !done2; byi++) {
+              var by = others[byi];
+              if (by === bx) continue;
+              var byh = g.hands[by];
+              for (var byj = 0; byj < byh.length; byj++) {
+                var cand2 = byh[byj];
+                if (isSpecial(cand2) || rankOf(cand2) > q.r) continue;   // 받아도 또 위반이면 무의미
+                var tmpSw = bh[vi]; bh[vi] = cand2; byh[byj] = tmpSw;     // 진짜 맞바꿈
+                done2 = true; break;
+              }
+            }
+            if (!done2) break;
+          }
+        }
+      }
+    }
+  }
+
   /* 소원 연역(noRank) — 하드 제약. constraints.noRank = { seat: {rank:1} }
    * "그 좌석은 이 랭크를 한 장도 안 가졌다"가 **증명된** 경우만 들어온다(hybrid-bot wishExclusions).
    * 위반 카드를 제약 없는 좌석의 카드와 맞바꾼다. 받을 좌석이 없으면 그대로 둔다

@@ -60,6 +60,9 @@ on:
       wishread:
         description: '소원 연역 (5단 후보) — 1이면 소원이 걸린 채 리드/저랭크패스한 좌석에서 그 랭크를 배제. 확률 아닌 참인 연역'
         default: ''
+      potread:
+        description: '큰 판 패스 연역 (5단 후보) — 1이면 25점+ 판에 패스한 좌석이 그 조합을 못 이기게 제약. 위반율 4%, 도달 69%'
+        default: ''
       bar:
         description: '판정 기준 점수차'
         default: '4.17'
@@ -94,6 +97,7 @@ jobs:
           PIN: ${{ inputs.pin }}
           DECLBIAS: ${{ inputs.declbias }}
           WISHREAD: ${{ inputs.wishread }}
+          POTREAD: ${{ inputs.potread }}
           TM_PARAMS: ${{ inputs.tm_params }}
         run: bash ml/run-shard.sh
       - uses: actions/upload-artifact@v4

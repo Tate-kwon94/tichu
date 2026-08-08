@@ -297,6 +297,48 @@ function create(netOrPath) {
     return mp;
   }
 
+  /* 큰 판 패스 연역(5단 후보 potRead) — 판돈이 클수록 신호가 깨끗하다.
+   *
+   * 측정(400라운드 11,683패스): "패스했는데 사실 이길 수 있었다"(전략적 보유) 비율이
+   *   판돈 0~4점 14.1% / 10~14점 13.3% / 15~24점 10.1% / **25점+ 4.0%**
+   * 기존 oppRead는 이 구간 구분 없이 낮은 패스까지 믿어 '틀린 belief'를 만들었고 40%로 졌다.
+   * 25점+로 한정하면 96% 참이고, 도달 범위는 69.2%(국면당 평균 3.12개 제약)로 넓다.
+   *
+   * hist에는 판돈이 없으므로 조합에서 점수를 근사한다(5=5, 10=10, K=10, 용=25).
+   * 스트레이트는 포함 랭크 구간을 훑고, 풀하우스는 트리플 랭크만 센다(과소 추정 = 보수적).
+   */
+  function potPassConstraints(hist) {
+    var PT = function (r) { return r === 5 ? 5 : (r === 10 || r === 13) ? 10 : 0; };
+    function comboPts(h) {
+      if (h.t === 'single') return h.r === 15 ? 25 : PT(h.r);       // 15 = 용
+      if (h.t === 'pair') return 2 * PT(h.r);
+      if (h.t === 'triple') return 3 * PT(h.r);
+      if (h.t === 'bomb4') return 4 * PT(h.r);
+      if (h.t === 'straight' || h.t === 'straightflush') {
+        var tot = 0, len = h.l || 5;
+        for (var k = h.r - len + 1; k <= h.r; k++) tot += PT(k);
+        return tot;
+      }
+      if (h.t === 'fullhouse') return 3 * PT(h.r);
+      if (h.t === 'pairseq') return 2 * PT(h.r);                    // 과소 추정(보수적)
+      return 0;
+    }
+    var out = {}, cur = null, pot = 0, passRun = 0;
+    for (var i = 0; i < hist.length; i++) {
+      var h = hist[i];
+      if (h.t === 'pass') {
+        if (cur && pot >= 25) (out[h.s] = out[h.s] || []).push({ t: cur.t, r: cur.r, l: cur.l });
+        if (++passRun >= 3) { cur = null; pot = 0; passRun = 0; }   // 트릭 종료
+        continue;
+      }
+      if (h.t === 'dog') { cur = null; pot = 0; passRun = 0; continue; }
+      pot += comboPts(h);
+      cur = { t: h.t, r: h.r, l: h.l };
+      passRun = 0;
+    }
+    return Object.keys(out).length ? out : null;
+  }
+
   /* 소원 연역 — 확률이 아니라 **참인 연역**이다(5단 후보 wishRead).
    * 엔진은 소원을 하드 강제한다: 이행 가능하면 다른 수도 패스도 거부된다(tichu-core 576·658행).
    * 그리고 소원은 이행되면 해제된다. 따라서 **소원이 지금도 살아 있다**는 사실이
@@ -407,6 +449,10 @@ function create(netOrPath) {
       }
       // ③ 상대 패 읽기: 이력에서 "각 좌석이 싱글에 패스한 최대 랭크" 추출 → 결정화 제약
       var constraints = (opts && opts.oppRead) ? { maxPassSingle: passConstraints(hist) } : null;
+      if (opts && opts.potRead) {
+        var pc = potPassConstraints(hist);
+        if (pc) constraints = Object.assign(constraints || {}, { noBeat: pc });
+      }
       if (opts && opts.wishRead) {
         var wx = wishExclusions(hist, game.wish);
         if (wx) constraints = Object.assign(constraints || {}, { noRank: wx });

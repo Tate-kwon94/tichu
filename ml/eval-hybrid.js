@@ -190,6 +190,7 @@ function hyDecide(g, seat, hist) {
       perfect: process.env.TICHU_PERFECT === '1',                    // 3단 헤드룸: 투시(완전정보)
       declBias: +process.env.TICHU_DECLBIAS || 0,                   // 5단 후보: 선언 조건부 결정화
       wishRead: process.env.TICHU_WISHREAD === '1',                 // 5단 후보: 소원 연역(하드 제약)
+      potRead: process.env.TICHU_POTREAD === '1',                   // 5단 후보: 큰 판 패스 연역(25점+, 96% 참)
       playout: process.env.TICHU_PLAYOUT || undefined,                // 'neural'=신경망 플레이아웃
       oppK: +process.env.TICHU_OPPK || 0,                            // 상대-연속 편향 제거(첫 K수)
       tm: TM,
