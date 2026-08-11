@@ -62,14 +62,18 @@ async function main() {
     if (names(host.snap).filter(Boolean).length !== 4) throw new Error('4인 미충족: ' + JSON.stringify(names(host.snap)));
     console.log('0) 4인 참가 OK', JSON.stringify(names(host.snap)));
 
-    // 1) 랜덤 배정 — 순열 보존
+    /* 1) 랜덤은 **예약만** 하고 대기실에서는 섞지 않는다(2026-08-09 사용자 지시).
+     * 즉시 섞으면 방장이 마음에 드는 배치가 나올 때까지 다시 누를 수 있어 무작위가 아니게 된다. */
+    var before1 = names(host.snap).join(',');
     var idR = host.send({ type: 'arrange_seats', mode: 'random' });
     var aR = await ack(host, idR, '랜덤');
     if (!aR.ok) throw new Error('랜덤 거부: ' + JSON.stringify(aR.error));
     await sleep(250);
-    var after = names(host.snap).filter(Boolean).slice().sort().join(',');
-    if (after !== '가,나,다,라') throw new Error('랜덤이 인원을 바꿈: ' + after);
-    console.log('1) 랜덤 배정 OK →', JSON.stringify(names(host.snap)));
+    if (names(host.snap).join(',') !== before1) {
+      throw new Error('★ 대기실에서 이미 섞였다 — 예약만 해야 한다: ' + names(host.snap).join(','));
+    }
+    if (!host.snap.randomSeats) throw new Error('★ randomSeats 예약 플래그가 안 켜짐');
+    console.log('1) 랜덤 예약 OK (대기실 배치 불변, randomSeats=true)');
 
     // 2) 순서 배정 — 참가 순번대로 복원
     var idO = host.send({ type: 'arrange_seats', mode: 'order' });
@@ -80,23 +84,18 @@ async function main() {
     console.log('2) 들어온 순서 배정 OK →', seq);
 
     /* 2.5) 2명일 때도 같은 팀이 될 수 있어야 한다.
-     * 예전엔 좌석 0부터 빈틈없이 몰아넣어 두 사람이 늘 좌석 0·1 = 반대 팀으로 고정됐다
-     * (마주보는 자리가 한 팀). 무작위를 아무리 눌러도 팀이 안 바뀌었다(사용자 보고). */
-    for (var k = 1; k < 3; k++) { others[k].send({ type: 'leave_room' }); await sleep(150); }
-    await sleep(250);
-    if (names(host.snap).filter(Boolean).length !== 2) {
-      throw new Error('2인 상태 만들기 실패: ' + JSON.stringify(names(host.snap)));
-    }
+     * 예전엔 좌석 0부터 빈틈없이 몰아넣어 두 사람이 늘 좌석 0·1 = 반대 팀으로 고정됐다.
+     * 이제 무작위는 **시작 시점**에 실행되므로 e2e에서 60판을 시작할 수 없다 —
+     * 배치 함수(seatArrange)를 직접 호출해 분포를 본다. */
+    var ROOMS = require(path.join(__dirname, '..', 'server', 'rooms.js'));
     var sameTeam = 0, tries = 60;
     for (var r = 0; r < tries; r++) {
-      var idr = host.send({ type: 'arrange_seats', mode: 'random' });
-      if (!(await ack(host, idr, '2인랜덤')).ok) throw new Error('2인 랜덤 거부');
-      await sleep(60);
-      var ns = names(host.snap);
-      // 좌석 0·2가 한 팀, 1·3이 한 팀
-      if ((ns[0] && ns[2]) || (ns[1] && ns[3])) sameTeam++;
+      var fake = { seats: [{ n: 'A' }, { n: 'B' }, null, null], hostSeat: 0 };
+      ROOMS._seatArrange(fake, 'random');
+      var ns2 = fake.seats.map(function (x) { return x ? x.n : null; });
+      if ((ns2[0] && ns2[2]) || (ns2[1] && ns2[3])) sameTeam++;
+      if (ns2.filter(Boolean).length !== 2) throw new Error('배치가 인원을 바꿈: ' + JSON.stringify(ns2));
     }
-    // 이론값 1/3. 60회에서 0회면 구조적으로 불가능하다는 뜻(예전 버그)
     if (sameTeam === 0) throw new Error('★ 2명이 같은 팀이 되는 경우가 ' + tries + '회 중 0회 — 좌석 배치가 앞자리에 고정됨');
     console.log('2.5) 2인 무작위에서 같은 팀 가능 OK (' + tries + '회 중 ' + sameTeam + '회, 기대 ~' + Math.round(tries / 3) + ')');
 
@@ -106,10 +105,22 @@ async function main() {
     if (aX.ok || aX.error.code !== 'NOT_HOST') throw new Error('비방장 배정이 허용됨');
     console.log('3) 비방장 배정 거부 OK');
 
-    // 4) 게임 시작 후 배정 거부
+    /* 3.5) 예약해 두고 시작하면 그때 섞인다 — 인원은 보존되어야 한다 */
+    var idR2 = host.send({ type: 'arrange_seats', mode: 'random' });
+    if (!(await ack(host, idR2, '랜덤예약')).ok) throw new Error('랜덤 재예약 거부');
+    await sleep(200);
+    var beforeStart = names(host.snap).join(',');
     host.send({ type: 'start_game', targetScore: 300, botLevel: 'normal' });
     await sleep(400);
     if (!host.snap.game) throw new Error('게임 시작 실패');
+    var afterStart = names(host.snap);
+    if (afterStart.filter(Boolean).slice().sort().join(',') !== '가,나,다,라') {
+      throw new Error('시작 시 무작위가 인원을 바꿈: ' + afterStart.join(','));
+    }
+    if (host.snap.randomSeats) throw new Error('★ 시작 후에도 예약 플래그가 남아 있다');
+    console.log('3.5) 시작 시 무작위 배치 OK (' + beforeStart + ' → ' + afterStart.join(',') + ')');
+
+    // 4) 게임 시작 후 배정 거부
     var idG = host.send({ type: 'arrange_seats', mode: 'random' });
     var aG = await ack(host, idG, '게임중');
     if (aG.ok || aG.error.code !== 'BAD_PHASE') throw new Error('게임 중 배정이 허용됨');

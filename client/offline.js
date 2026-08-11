@@ -101,6 +101,8 @@ function create(handlers, resume, botLevel, superHy, declNet, exchNet, exchNet4)
       } else if ((isDan3 || isDan4) && game.phase === 'play' && game.turnSeat === s && game.finished.indexOf(s) < 0) {
         // 3·4단 플레이: 같은 swa 가중치 PUCT. 차이는 탐색 상한뿐 — 4단만 예산을 다 쓴다.
         a = superHy.decidePuct(game, s, hist, { budgetMs: DAN_BUDGET, c: 1.0, repCap: DAN_REPCAP, tm: DAN_TM });
+        // 파트너 티츄 가드 — 서버(rooms.js)와 같은 처리. 혼자 연습에서도 봇 파트너가 티츄를 죽이면 안 된다
+        a = B.guardPartnerTichu(game, s, a);
       } else if (isSuper && game.phase === 'play' && game.turnSeat === s && game.finished.indexOf(s) < 0) {
         a = superHy.decidePuct(game, s, hist, { budgetMs: DAN_BUDGET, c: 1.0, repCap: DAN_REPCAP, tm: DAN_TM });
       } else {

@@ -59,6 +59,8 @@ var STR = {
   teamsOrder: '들어온 순서',
   teamsRandom: '랜덤',
   teamsShuffled: '팀을 무작위로 섞었습니다',
+  teamsRandomQueued: '게임 시작할 때 무작위로 배치됩니다',
+  teamsRandomPending: '⚄ 무작위 예약됨 — 시작을 누르는 순간 자리가 정해집니다',
   teamsOrdered: '들어온 순서대로 앉혔습니다',
   teamsHint: '마주 보는 자리가 한 팀 — 순서대로 앉히거나 무작위로 섞습니다 (방장만)',
   botDan2: '2단',

@@ -195,6 +195,7 @@ function snapshotFor(room, seat) {
       };
     }),
     game: room.game ? room.game.viewFor(seat) : null,
+    randomSeats: !!room.randomSeats,                          // 시작 시 무작위 배치 예약됨
     spectating: seat < 0,                                    // 나는 관전자인가
     spectators: (room.spectators || []).map(function (p) { return p.name; }),
     botTimer: room.botDeadline
@@ -352,10 +353,16 @@ function botAct(room, seat) {
     // 3·4단 플레이: 같은 swa 가중치 PUCT. 차이는 탐색 상한뿐 — 4단만 예산을 다 쓴다.
     a = getSuper3Bot().decidePuct(g, seat, room.playHist || [],
       { budgetMs: DAN_BUDGET, c: 1.0, repCap: DAN_REPCAP, tm: DAN_TM });
+    /* 파트너 티츄 가드 — 사용자 보고("우리 팀이 티츄했을 때 봇이 참아야").
+     * 원인은 결정화가 "선언=강한 패"를 모르는 것이다(실측: 기본 결정화에서 선언 좌석
+     * 완주율 24%). 그래서 탐색 세계에선 파트너 티츄가 대부분 죽고 "어차피 죽을 티츄,
+     * 내가 완주"가 합리가 된다 — 잘못된 믿음 위의 합리라 평가 개선이 아니라 하드 가드가 답이다.
+     * 실측(좌석1 라지 강제 60라운드): 파트너 완주 임박 국면 15건 전부에서 가드가 개입.
+     * 명시적 배신(파트너가 1등) 6.7%. */
+    a = B.guardPartnerTichu(g, seat, a);
   } else if (isSuper && g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
     a = getSuperBot().decidePuct(g, seat, room.playHist || [], { budgetMs: 950, c: 1.0, repCap: DAN_REPCAP });
-    // 파트너 티츄 가드(B.guardPartnerTichu)는 사용자 결정으로 2단에 미적용 — 3단 전용 재료
-    // (2단은 검증된 상태 그대로 동결. 배신 현상은 3단에서 해소 예정)
+    // 파트너 티츄 가드는 2단에 미적용 — 2단은 검증된 상태 그대로 동결(3·4단에만 적용)
   } else {
     // 초고수의 선언·교환(1단)·소원·용은 고수와 같은 휴리스틱(botDecide는 미지 레벨을 보통으로 처리)
     a = B.botDecide(g, seat, room.botLevel);
@@ -428,6 +435,30 @@ function destroyRoom(room, reason) {
   room.spectators = [];
   rooms.delete(room.code);
 }
+/* 좌석 재배치 — arrange_seats(순서)와 start_game(예약된 무작위) 둘 다 쓴다.
+ * 무작위는 사람이 아니라 **좌석 4칸**을 섞는다. 앞자리부터 몰아넣으면 2명일 때 늘
+ * 좌석 0·1이 되는데 마주보는 자리가 한 팀이라 둘은 무조건 반대 팀으로 고정된다. */
+function seatArrange(room, mode) {
+  var occ = room.seats.filter(Boolean);
+  if (occ.length < 2) return false;
+  var hostPlayer = room.seats[room.hostSeat];   // 방장은 자리를 따라간다(번호가 아니라 사람)
+  var slot = [0, 1, 2, 3];
+  if (mode === 'random') {
+    for (var ri = slot.length - 1; ri > 0; ri--) {          // Fisher-Yates
+      var rj = crypto.randomInt(ri + 1), tmp = slot[ri]; slot[ri] = slot[rj]; slot[rj] = tmp;
+    }
+  } else {
+    // 참가 순서 — 순번 없는 사람(방장·복귀자)은 0으로 보아 앞에 온다
+    occ.sort(function (x, y) { return (x.joinSeq || 0) - (y.joinSeq || 0); });
+  }
+  room.seats = [null, null, null, null];
+  occ.forEach(function (p2, idx) { var sn = slot[idx]; room.seats[sn] = p2; p2.seat = sn; });
+  var hi = room.seats.indexOf(hostPlayer);
+  if (hi >= 0) room.hostSeat = hi;
+  fixHost(room);
+  return true;
+}
+
 var MAX_SPECTATORS = 8;
 
 /* 관전자로 앉힌다. 좌석은 −1 — 게임 액션은 전부 좌석 검사에서 막히고,
@@ -586,6 +617,7 @@ function handle(player, a) {
         createdAt: now(), lastActivity: now(),
         botTimer: null, botSeat: null, botDeadline: null,
         banned: [], // 강퇴된 세션 토큰 — 재입장 차단
+        randomSeats: false, // 팀 무작위 배치 예약 — 시작 시점에 실행(대기실에선 안 섞는다)
         spectators: [] // 관전자(좌석 없음) — 손패는 절대 보내지 않는다
       };
       player.roomCode = code;
@@ -718,27 +750,16 @@ function handle(player, a) {
       // 좌석 배열만 바꾸면 팀이 정해진다. 대기실에서 방장만.
       if (!isHost) return ackOf(a, room, err('NOT_HOST', '방장만 바꿀 수 있습니다'));
       if (room.game) return ackOf(a, room, err('BAD_PHASE', '게임 중에는 바꿀 수 없습니다'));
-      var occ = room.seats.filter(Boolean);
-      if (occ.length < 2) return ackOf(a, room, err('BAD_REQUEST', '사람이 부족합니다'));
-      var hostPlayer = room.seats[room.hostSeat];   // 방장은 자리를 따라간다(좌석 번호가 아니라 사람)
-      /* 무작위는 사람이 아니라 **좌석 4칸**을 섞는다.
-       * 앞자리부터 몰아넣으면 2명일 때 늘 좌석 0·1이 되는데 마주보는 자리가 한 팀이라
-       * 둘은 무조건 반대 팀으로 고정된다 — 아무리 눌러도 팀이 안 바뀐다(사용자 보고).
-       * 빈 좌석은 start_game이 봇으로 채우므로(위 793행) 구멍이 나도 안전하다. */
-      var slot = [0, 1, 2, 3];
+      if (room.seats.filter(Boolean).length < 2) return ackOf(a, room, err('BAD_REQUEST', '사람이 부족합니다'));
+      /* 무작위는 **게임 시작 때** 실행한다(사용자 지시). 대기실에서 즉시 섞으면
+       * 방장이 마음에 드는 배치가 나올 때까지 다시 누를 수 있어 무작위가 아니게 된다.
+       * 시작 전까지 결과를 못 보게 예약만 걸어 둔다. */
       if (a.mode === 'random') {
-        for (var ri = slot.length - 1; ri > 0; ri--) {          // Fisher-Yates
-          var rj = crypto.randomInt(ri + 1), tmp = slot[ri]; slot[ri] = slot[rj]; slot[rj] = tmp;
-        }
+        room.randomSeats = true;
       } else {
-        // 참가 순서 — 순번 없는 사람(방장·복귀자)은 0으로 보아 앞에 온다
-        occ.sort(function (x, y) { return (x.joinSeq || 0) - (y.joinSeq || 0); });
+        room.randomSeats = false;
+        seatArrange(room, 'order');
       }
-      room.seats = [null, null, null, null];
-      occ.forEach(function (p2, idx) { var sn = slot[idx]; room.seats[sn] = p2; p2.seat = sn; });
-      var hi = room.seats.indexOf(hostPlayer);
-      if (hi >= 0) room.hostSeat = hi;
-      fixHost(room);
       room.lastActivity = now();
       broadcast(room);
       return ackOf(a, room, null);
@@ -795,6 +816,8 @@ function handle(player, a) {
     case 'start_game': {
       if (!isHost) return ackOf(a, room, err('NOT_HOST', '방장만 시작할 수 있습니다'));
       if (room.game) return ackOf(a, room, err('BAD_PHASE', '이미 시작되었습니다'));
+      // 예약된 무작위 배치를 여기서 실행 — 봇으로 채우기 전이라 사람만 섞인다
+      if (room.randomSeats) { seatArrange(room, 'random'); room.randomSeats = false; }
       for (var f = 0; f < 4; f++) if (!room.seats[f]) room.seats[f] = makeBot(f, room);
       var ts = (a.targetScore === 300 || a.targetScore === 500 || a.targetScore === 1000) ? a.targetScore : 1000;
       room.targetScore = ts;
@@ -1057,6 +1080,7 @@ function stats() { return { rooms: rooms.size, players: players.size }; }
 
 module.exports = {
   PROTO: PROTO,
+  _seatArrange: seatArrange,   // 테스트 전용 — 좌석 배치 분포 검사(e2e에서 60판 시작은 불가)
   attachWS: attachWS,
   handleHttp: handleHttp,
   findPlayer: findPlayer,

@@ -372,6 +372,10 @@ Game.prototype._startRound = function () {
   this.finished = [];
   this.firstOutSeat = null;
   this.dragonChooser = null;
+  /* 리롤 동의는 라운드마다 새로 받는다 — 안 지우면 지난 판에 누른 사람이 다음 판에도
+   * 동의 상태로 남아, 파트너가 혼자 한 번만 눌러도 −75점 리롤이 실행된다(팀 합의제 붕괴).
+   * 사용 횟수(rerolls)는 게임 단위이므로 여기서 지우지 않는다. */
+  this.rerollVote = [false, false, false, false];
   this._pendingRoundEnd = false;
   this.roundSummary = null;
   this.phase = 'grand';
@@ -400,7 +404,7 @@ Game.prototype._badSeat = function (s) { return !(s === 0 || s === 1 || s === 2 
  * 페널티는 리롤한 팀에 누적되고 라운드 정산 때 반영된다.
  * 덱 56장이 전부 나뉘어 있어 한 사람만 다시 받는 건 불가능 → 전원 재딜.
  * 새 패이므로 라지 선언·응답은 전부 초기화하고 라지 단계부터 다시 한다. */
-Game.prototype.REROLL_MAX = 2;
+Game.prototype.REROLL_MAX = 4;   // 게임당 팀별 (사용자 지시로 2 → 4)
 Game.prototype.REROLL_COST = 75;
 
 /* 리롤 창: 교환까지 끝나고 아직 아무도 카드를 내지 않은 시점만.

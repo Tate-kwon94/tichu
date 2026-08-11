@@ -810,8 +810,9 @@ function renderLobby() {
     (isHost()
       ? '<div class="targetRow"><span class="targetLbl">' + STR.teamsLbl + '</span>' +
           '<button class="btn small ' + (state.arrangeMode === 'order' ? 'gold' : 'ghost') + '" data-act="arrange" data-mode="order">' + STR.teamsOrder + '</button>' +
-          '<button class="btn small ' + (state.arrangeMode === 'random' ? 'gold' : 'ghost') + '" data-act="arrange" data-mode="random">' + STR.teamsRandom + '</button>' +
-        '</div><div class="botHint">' + STR.teamsHint + '</div>'
+          '<button class="btn small ' + (snap.randomSeats ? 'gold' : 'ghost') + '" data-act="arrange" data-mode="random">' + STR.teamsRandom + '</button>' +
+        '</div><div class="botHint">' +
+        (snap.randomSeats ? STR.teamsRandomPending : STR.teamsHint) + '</div>'
       : '') +
     (isHost()
       ? targetPicker() + botLevelPicker(false) + '<button class="btn primary" data-act="start">' + STR.start + ' (빈자리는 봇)</button>'
@@ -1095,6 +1096,9 @@ function renderModal() {
   var g = game();
   if (state.help) return helpModal();
   if (!g) return '';
+  /* 리롤 창이 닫혔는데 확인 모달만 남는 일 방지 — 라운드가 넘어가거나 누가 카드를 내면
+   * rerollOpen이 false가 된다. 그때 모달을 스스로 접는다(잔여 UI 상태 제거). */
+  if (state.rerollAsk && !(g.you && g.you.rerollOpen)) state.rerollAsk = false;
   if (state.rerollAsk) {
     /* 점수가 걸린 되돌릴 수 없는 행동이라 2단계 확인 — 티츄 선언과 같은 처리 */
     return '<div class="backdrop" data-dismiss="reroll-cancel"><div class="sheet"><h2>' + STR.rerollConfirm + '</h2>' +
@@ -1552,7 +1556,8 @@ function onClick(e) {
       var am = el.getAttribute('data-mode');   // onClick이 잡아둔 요소는 el (t는 존재하지 않는다)
       state.arrangeMode = am;                        // 마지막 선택 강조(클릭 피드백)
       send({ type: 'arrange_seats', mode: am });
-      toast(am === 'random' ? STR.teamsShuffled : STR.teamsOrdered, { ms: 1800 });
+      // 무작위는 시작 때 실행되므로 "섞었습니다"가 아니라 "예약됐습니다"로 알린다
+      toast(am === 'random' ? STR.teamsRandomQueued : STR.teamsOrdered, { ms: 2200 });
       break;
     }
     case 'stats-open': openStats(); break;
