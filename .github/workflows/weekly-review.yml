@@ -1,0 +1,19 @@
+name: weekly-review
+# 주간 기보 리뷰 — 매주 월요일 아침, 라이브 KV 기보를 수집해 Summary에 요약을 남긴다.
+# 총 라운드 1,000 돌파 시 "사람 메타 재평가 시점" 배너가 뜬다(ml/weekly-review.js).
+# 왜 Actions인가: 클라우드 Claude 루틴은 세션이 시작을 못 하는 인프라 문제가 재현됐고(2026-08-26),
+# 이 통계는 결정론적이라 LLM이 필요 없다. 결과 확인: Actions 탭 → weekly-review → Summary.
+# 주의: GitHub은 60일간 저장소 활동이 없으면 예약 워크플로를 자동 비활성화한다.
+
+on:
+  schedule:
+    - cron: '23 7 * * 1'   # 월요일 07:23 UTC (수집·집계만, 서버엔 GET뿐)
+  workflow_dispatch:
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 수집·집계
+        run: node ml/weekly-review.js | tee -a "$GITHUB_STEP_SUMMARY"
