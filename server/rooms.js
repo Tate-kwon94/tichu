@@ -329,14 +329,17 @@ function botAct(room, seat) {
   var DAN_TM = isDan4 ? { bank: (room._tmBank = room._tmBank || { ms: 0 }),
                           checkAt: 0.35, stopShare: 0.90, stopMargin: 0.55,
                           maxExtra: 0, hardCap: 5000 } : null;
+  // 파트너가 이미 선언했으면 봇은 안 부른다 — 1등 완주는 한 명뿐이라 두 번째 선언은
+  // 거의 확실히 한쪽의 실패(−100/−200)를 만든다 (사용자 보고 2026-08-26)
+  var mateDecl = g.tichu[(seat + 2) % 4] > 0;
   var superTichu = isSuper && p && p.isBot && g.phase === 'play' && g.turnSeat === seat &&
-    !g.playedFirst[seat] && !g.tichu[seat] && getDeclare().tichu(g.hands[seat]);
+    !g.playedFirst[seat] && !g.tichu[seat] && !mateDecl && getDeclare().tichu(g.hands[seat]);
   var heurTichu = !isSuper && p && p.isBot && room.botLevel !== 'easy' && g.phase === 'play' &&
-    g.turnSeat === seat && !g.playedFirst[seat] && !g.tichu[seat] && B.botTichu(g.hands[seat]);
+    g.turnSeat === seat && !g.playedFirst[seat] && !g.tichu[seat] && !mateDecl && B.botTichu(g.hands[seat]);
   if (superTichu || heurTichu) {
     a = { type: 'call_tichu', seat: seat };
   } else if (isSuper && g.phase === 'grand' && !g.grandAnswered[seat]) {
-    a = { type: 'call_grand', seat: seat, call: getDeclare().grand(g.hands[seat]) }; // 선언 신경망(동결)
+    a = { type: 'call_grand', seat: seat, call: !mateDecl && getDeclare().grand(g.hands[seat]) }; // 선언 신경망(동결) + 파트너 선언 게이트
   } else if (room.botLevel === 'super2' && g.phase === 'exchange' && !g.exchangeGive[seat]) {
     a = { type: 'submit_exchange', seat: seat, give: B.botExchange(g, seat, { keepSpecials: true }) }; // ⑦ 2단 전용
   } else if (isDan4 && g.phase === 'exchange' && !g.exchangeGive[seat]) {
@@ -360,6 +363,9 @@ function botAct(room, seat) {
      * 실측(좌석1 라지 강제 60라운드): 파트너 완주 임박 국면 15건 전부에서 가드가 개입.
      * 명시적 배신(파트너가 1등) 6.7%. */
     a = B.guardPartnerTichu(g, seat, a);
+    // 용·봉황 낭비 절제 (사용자 보고: "A가 나오면 용/봉황을 거의 대부분 낸다")
+    a = B.guardDragonSingle(g, seat, a);
+    a = B.guardPhoenixSingle(g, seat, a);
   } else if (isSuper && g.phase === 'play' && g.turnSeat === seat && g.finished.indexOf(seat) < 0) {
     a = getSuperBot().decidePuct(g, seat, room.playHist || [], { budgetMs: 950, c: 1.0, repCap: DAN_REPCAP });
     // 파트너 티츄 가드는 2단에 미적용 — 2단은 검증된 상태 그대로 동결(3·4단에만 적용)

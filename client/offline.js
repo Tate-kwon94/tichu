@@ -78,13 +78,15 @@ function create(handlers, resume, botLevel, superHy, declNet, exchNet, exchNet4)
       var DAN_BUDGET = isDan4 ? 3800 : 900;
       var DAN_TM = isDan4 ? { bank: tmBank, checkAt: 0.35, stopShare: 0.90,
                               stopMargin: 0.55, maxExtra: 0, hardCap: 5000 } : null;
+      var mateDecl = game.tichu[(s + 2) % 4] > 0;   // 파트너 선언 시 봇은 안 부른다 (사용자 보고)
       var wantTichu = game.phase === 'play' && game.turnSeat === s && !game.playedFirst[s] && !game.tichu[s] &&
+        !mateDecl &&
         (isSuper && declNet ? declNet.tichu(game.hands[s])
           : (botLevel !== 'easy' && !isSuper && B.botTichu(game.hands[s])));
       if (wantTichu) {
         a = { type: 'call_tichu', seat: s };
       } else if (isSuper && declNet && game.phase === 'grand' && !game.grandAnswered[s]) {
-        a = { type: 'call_grand', seat: s, call: declNet.grand(game.hands[s]) }; // 선언 신경망(동결)
+        a = { type: 'call_grand', seat: s, call: !mateDecl && declNet.grand(game.hands[s]) }; // 선언 신경망(동결) + 파트너 선언 게이트
       } else if (botLevel === 'super2' && game.phase === 'exchange' && !game.exchangeGive[s]) {
         a = { type: 'submit_exchange', seat: s, give: B.botExchange(game, s, { keepSpecials: true }) }; // ⑦ 2단 전용
       } else if (isDan4 && game.phase === 'exchange' && !game.exchangeGive[s]) {
@@ -103,6 +105,8 @@ function create(handlers, resume, botLevel, superHy, declNet, exchNet, exchNet4)
         a = superHy.decidePuct(game, s, hist, { budgetMs: DAN_BUDGET, c: 1.0, repCap: DAN_REPCAP, tm: DAN_TM });
         // 파트너 티츄 가드 — 서버(rooms.js)와 같은 처리. 혼자 연습에서도 봇 파트너가 티츄를 죽이면 안 된다
         a = B.guardPartnerTichu(game, s, a);
+        a = B.guardDragonSingle(game, s, a);   // 용·봉황 낭비 절제 (rooms.js와 동일)
+        a = B.guardPhoenixSingle(game, s, a);
       } else if (isSuper && game.phase === 'play' && game.turnSeat === s && game.finished.indexOf(s) < 0) {
         a = superHy.decidePuct(game, s, hist, { budgetMs: DAN_BUDGET, c: 1.0, repCap: DAN_REPCAP, tm: DAN_TM });
       } else {

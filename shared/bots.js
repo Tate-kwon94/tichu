@@ -613,10 +613,13 @@ function botDecide(game, seat, level) {
   var easy = level === 'easy';
   var phase = game.phase;
   if (phase === 'grand' && !game.grandAnswered[seat]) {
-    return { type: 'call_grand', seat: seat, call: easy ? false : botGrand(game.hands[seat]) };
+    // 파트너가 이미 선언했으면 안 부른다 — 한 팀에서 1등 완주는 한 명뿐이라
+    // 두 번째 선언은 거의 확실히 한쪽의 실패(−100/−200)를 만든다 (사용자 보고)
+    var grandOk = !easy && !game.tichu[partnerOf(seat)] && botGrand(game.hands[seat]);
+    return { type: 'call_grand', seat: seat, call: grandOk };
   }
   if (phase === 'exchange' && !game.exchangeGive[seat]) {
-    if (!easy && !game.tichu[seat] && botTichu(game.hands[seat])) return { type: 'call_tichu', seat: seat };
+    if (!easy && !game.tichu[seat] && !game.tichu[partnerOf(seat)] && botTichu(game.hands[seat])) return { type: 'call_tichu', seat: seat }; // 파트너 선언 시 금지
     return { type: 'submit_exchange', seat: seat, give: botExchange(game, seat) };
   }
   if (phase === 'dragon' && game.dragonChooser === seat) {
@@ -662,6 +665,27 @@ function guardPartnerTichu(game, seat, action) {
   return nb || action;
 }
 
+/* 용 싱글 응수 절제(사용자 피드백 2026-08-26) — "A가 나오면 용을 거의 대부분 낸다".
+ * 용으로 딴 트릭은 **상대에게 헌납**된다(엔진 규칙). 싱글 A를 용으로 잡으면
+ * (바닥점수 + 용 25점)을 상대에게 주고 얻는 것은 리드뿐이다.
+ * 기보 실측(392라운드): 봇은 A 싱글에 용/봉황 즉답 51.5%(사람 30.4%),
+ * 용을 낼 때 평균 바닥 6점 — 푼돈 트릭에 25점+α를 내주는 패턴.
+ * 허용: 티츄가 걸린 국면(리드 가치 큼) / 종반(손패 ≤6, 템포 우선) / 바닥 ≥10점.
+ * 차단: 파트너가 이기는 중(그의 트릭을 뺏어 상대에게 줌 — 이중 손해)이거나 푼돈 트릭. */
+function guardDragonSingle(game, seat, action) {
+  if (!action || action.type !== 'play_cards') return action;
+  if (!(action.cards && action.cards.length === 1 && action.cards[0] === 'DR')) return action;
+  var cur = game.currentCombo;
+  if (!cur || cur.type !== 'single') return action;      // 리드로 내는 용은 건드리지 않는다
+  var gm = genMoves(game.hands[seat], cur, game.wish);
+  if (gm.forced) return action;                          // 강제 수 — 엔진 거부 방지
+  if (game.lastPlayerSeat === partnerOf(seat)) return { type: 'pass_turn', seat: seat };
+  for (var t = 0; t < 4; t++) if (game.tichu[t] > 0 && game.finished.indexOf(t) < 0) return action;
+  if (game.hands[seat].length <= 6) return action;
+  if (sumPoints(game.trickPile || []) < 10) return { type: 'pass_turn', seat: seat };
+  return action;
+}
+
 /* 봉황 싱글 가드(3단 재료, 사용자 피드백) — "용이 빠졌거나 용이 나와도 대응 가능해야".
  * 실측: 2단은 용 소재와 무관하게 봉황 베팅(용 미출현 6/8 vs 소진 7/8). 점수상 용↔봉황은
  * 등가 교환이라 평가가 겁을 안 내지만, 봉황의 콤보 유연성 가치는 플레이아웃이 못 쓴다.
@@ -691,6 +715,7 @@ return {
   botExchange: botExchange,
   guardPartnerTichu: guardPartnerTichu,
   guardPhoenixSingle: guardPhoenixSingle,
+  guardDragonSingle: guardDragonSingle,
   botWish: botWish,
   botDragon: botDragon,
   botPlay: botPlay,

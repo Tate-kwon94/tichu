@@ -205,6 +205,7 @@ function hyDecide(g, seat, hist) {
     if (hasCand('guardTichu')) act = B.guardPartnerTichu(g, seat, act);
     // 3단 후보: 봉황 싱글 가드 — 용 미소진·무대응 상태의 봉황 싱글을 억제(사용자 피드백)
     if (hasCand('phxGuard')) act = B.guardPhoenixSingle(g, seat, act);
+    if (hasCand('dragonGuard')) act = B.guardDragonSingle(g, seat, act);   // 용 싱글 응수 절제(사용자 피드백)
     // lateTichu: 지금 실제로 카드를 내려는 순간에만 선언 — 선언 후 같은 좌석이 다시 행동한다
     if (hasCand('lateTichu') && act && act.type === 'play_cards' &&
         !g.playedFirst[seat] && !g.tichu[seat] && decl && decl.tichu(g.hands[seat], ctx)) {
