@@ -1,9 +1,9 @@
 /* 서비스워커 — 정적 자산 캐시(오프라인 혼자 연습), 네트워크 우선(업데이트 안전) */
-var VERSION = 'tichu-v39';
+var VERSION = 'tichu-v40';
 /* 자산 URL에 ?v=를 붙인다 — Cloudflare가 원본의 no-cache를 max-age=14400(4시간)으로
  * 덮어써서, URL이 그대로면 배포 후에도 브라우저가 최대 4시간 구파일을 쓴다(실측).
  * index.html은 CF가 캐시하지 않으므로(DYNAMIC) 새 버전 URL이 즉시 전파된다. */
-var V = 'v=39';
+var V = 'v=40';
 var ASSETS = [
   './',
   'index.html',
