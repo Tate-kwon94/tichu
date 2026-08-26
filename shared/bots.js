@@ -679,7 +679,10 @@ function guardDragonSingle(game, seat, action) {
   if (!cur || cur.type !== 'single') return action;      // 리드로 내는 용은 건드리지 않는다
   var gm = genMoves(game.hands[seat], cur, game.wish);
   if (gm.forced) return action;                          // 강제 수 — 엔진 거부 방지
-  if (game.lastPlayerSeat === partnerOf(seat)) return { type: 'pass_turn', seat: seat };
+  if (game.lastPlayerSeat === partnerOf(seat)) {
+    if (game.tichu[seat] > 0) return action;   // 내 티츄 진행 중 — 리드 확보가 우선일 수 있다
+    return { type: 'pass_turn', seat: seat };
+  }
   for (var t = 0; t < 4; t++) if (game.tichu[t] > 0 && game.finished.indexOf(t) < 0) return action;
   if (game.hands[seat].length <= 6) return action;
   if (sumPoints(game.trickPile || []) < 10) return { type: 'pass_turn', seat: seat };
@@ -696,6 +699,14 @@ function guardPhoenixSingle(game, seat, action) {
   if (!(action.cards && action.cards.length === 1 && action.cards[0] === 'PH')) return action;
   var hand = game.hands[seat];
   if (hand.length <= 2) return action;                   // 종반 필연은 막지 않음
+  /* 파트너가 이기는 중인 싱글을 봉황으로 뺏지 않는다(사용자 보고: 우리 팀 A에 봉황).
+   * 봉황은 −25점이라 뺏는 순간 팀이 25점을 잃고 얻는 것은 리드뿐이다.
+   * 내 티츄가 걸렸을 때만 허용(1등 완주에 리드가 필요할 수 있다). 강제 수는 불간섭. */
+  if (game.currentCombo && game.currentCombo.type === 'single' &&
+      game.lastPlayerSeat === partnerOf(seat) && !(game.tichu[seat] > 0)) {
+    var gmP = genMoves(hand, game.currentCombo, game.wish);
+    if (!gmP.forced) return { type: 'pass_turn', seat: seat };
+  }
   if (hand.indexOf('DR') >= 0) return action;
   var seen = (game.trickPile || []).slice();
   for (var s = 0; s < 4; s++) seen = seen.concat(game.tricksWon[s] || []);
