@@ -410,7 +410,12 @@ function startSolo(resume) {
         state.conn = { s: '', mode: 'offline' };
       })
       .catch(function () {
-        toast(danNum + ' 봇 로드 실패 — 기본 봇으로 시작합니다', { ms: 4000, warn: true });
+        // 오프라인이면 원인이 "아직 한 번도 받은 적 없음"이다 — 해결법을 같이 알려준다.
+        // (가중치는 sw.js의 영구 캐시에 남으므로 온라인에서 한 번만 실행하면 된다)
+        var why = navigator.onLine === false
+          ? ' — 오프라인입니다. 온라인에서 ' + danNum + ' 봇을 한 번 실행하면 오프라인에서도 쓸 수 있습니다'
+          : ' — 기본 봇으로 시작합니다';
+        toast(danNum + ' 봇 로드 실패' + why, { ms: 6000, warn: true });
         state.session = OfflineSession.create(handlers, resume, 'hard');
         state.conn = { s: '', mode: 'offline' };
       });
