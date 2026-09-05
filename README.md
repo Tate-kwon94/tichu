@@ -3,6 +3,36 @@
 4인 파트너 카드게임 티츄를 브라우저에서 플레이합니다. 모바일(아이폰·갤럭시)과 PC 모두 지원하며,
 **npm 패키지 0개 / 빌드 과정 없음 / 외부 리소스 0개**의 자급자족 구성입니다.
 
+## In English
+
+Tichu — a 4-player partnership climbing card game — playable in the browser on phones and
+desktop. **Zero npm packages, no build step, no external resources**: the server is plain
+Node, the client is plain JS, and it installs as a PWA and keeps playing offline against bots.
+
+The interesting part is the AI. Tichu is an *imperfect-information* partnership game: you
+never see the other three hands, and you have to cooperate with a partner you cannot talk to.
+So the bot is not a rule-based opponent — it is trained by self-play:
+
+- **AlphaZero-style loop** (`ml/az.sh`) — PUCT search generates games, the network is
+  distilled from the search's visit distribution, and each generation is kept. The loop is
+  restart-safe and splits work: a nightly CI job produces the bulk games (~1,600/night),
+  the local machine trains and runs the tripwire. A frozen earlier network stays as the
+  anchor opponent, so a regression cannot quietly pass as progress. KL target 0.04.
+- **Opponent-hand belief model** (`ml/belief_train.py`) — conditional logits over seats
+  (shared weights, per-seat features, softmax). Deliberately started linear: the question
+  was not "how strong can this get" but "is there a learnable signal here at all", and a
+  linear model answers that with a lower bound.
+- **Specialised heads** for the parts that are their own decision problems — declaring
+  Tichu/Grand Tichu, the card exchange, endgame play — plus stochastic weight averaging
+  across generations.
+- **What the bot still lacks**, written down honestly in `ml/PLAN-humanlike.md`: holding
+  strong cards for the right moment, reading opponents, bluffing. The bot's evaluation is
+  truncated at the round boundary while those skills need whole-game context. The plan
+  names that as the root cause rather than tuning around it.
+
+Everything else — rules engine, WebSocket transport with SSE/polling fallbacks, seat
+reconnection, room codes — is shared between server and browser from one source.
+
 ## 플레이 방법 (3가지)
 
 | 방식 | 필요한 것 | 사용처 |
